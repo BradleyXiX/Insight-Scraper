@@ -1,0 +1,9 @@
+playwright: For navigating modern, JavaScript-heavy sites.
+
+beautifulsoup4: For fast HTML parsing once the page loads.
+
+pandas: To organize your leads into a clean table (Dataframe).
+
+streamlit: For your lead-gen dashboard.
+
+python-dotenv: To manage your environment variables securely.
