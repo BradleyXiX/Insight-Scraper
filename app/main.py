@@ -1,31 +1,37 @@
+import asyncio
+import sys
 import random
-import time
 import pandas as pd
-from playwright.sync_api import sync_playwright
+from playwright.async_api import async_playwright
 from bs4 import BeautifulSoup
 
-def get_nairobi_leads(search_query):
+# Set event loop policy for Windows before any async code
+if sys.platform == 'win32':
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+
+async def _scrape_leads_async(search_query):
+    """Async function to perform web scraping."""
     leads = []
     
-    with sync_playwright() as p:
+    async with async_playwright() as p:
         # Launch browser in headless mode for efficiency
-        browser = p.chromium.launch(headless=True)
+        browser = await p.chromium.launch(headless=True)
         # Identify as a real browser to avoid instant blocks
-        context = browser.new_context(
+        context = await browser.new_context(
             user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
         )
-        page = context.new_page()
+        page = await context.new_page()
 
         print(f"Searching for: {search_query}...")
         # For this example, we'll simulate hitting a directory URL
         # In a real scenario, you'd navigate to Google Maps or a Business Directory
-        page.goto("https://www.yellowpageskenya.com/search?q=" + search_query)
+        await page.goto("https://www.yellowpageskenya.com/search?q=" + search_query)
         
         # Human-like delay
-        time.sleep(random.uniform(3, 6))
+        await asyncio.sleep(random.uniform(3, 6))
 
         # Grab the page source and pass it to BeautifulSoup for fast parsing
-        html = page.content()
+        html = await page.content()
         soup = BeautifulSoup(html, 'html.parser')
 
         # Logic to find business cards (example classes)
@@ -35,8 +41,14 @@ def get_nairobi_leads(search_query):
             
             leads.append({"Business Name": name, "Contact": phone})
 
-        browser.close()
+        await browser.close()
     
+    return leads
+
+def get_nairobi_leads(search_query):
+    """Sync wrapper for async scraping function."""
+    # Always use asyncio.run() - it handles both cases correctly
+    leads = asyncio.run(_scrape_leads_async(search_query))
     return pd.DataFrame(leads)
 
 if __name__ == "__main__":
