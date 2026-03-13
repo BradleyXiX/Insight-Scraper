@@ -1,6 +1,8 @@
 import asyncio
 import sys
 import random
+import subprocess
+import json
 import pandas as pd
 from playwright.async_api import async_playwright
 from bs4 import BeautifulSoup
@@ -45,10 +47,23 @@ async def _scrape_leads_async(search_query):
     
     return leads
 
+import subprocess
+import json
+
 def get_nairobi_leads(search_query):
-    """Sync wrapper for async scraping function."""
-    # Always use asyncio.run() - it handles both cases correctly
-    leads = asyncio.run(_scrape_leads_async(search_query))
+    """Run the scraping in a separate Python process to avoid event-loop issues."""
+    # call the helper script with the query argument
+    try:
+        output = subprocess.check_output([
+            sys.executable,
+            "-u",  # unbuffered
+            "%s" % (__file__.replace('main.py','scraper_worker.py')),
+            search_query
+        ], text=True)
+        leads = json.loads(output)
+    except subprocess.CalledProcessError as e:
+        print("Worker error", e, file=sys.stderr)
+        leads = []
     return pd.DataFrame(leads)
 
 if __name__ == "__main__":
