@@ -1,14 +1,11 @@
 import asyncio
-import sys
-
-# set Windows selector policy as early as possible
-if sys.platform == 'win32':
-    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
-
-import random
 import json
-from playwright.async_api import async_playwright
+import random
+import sys
+import urllib.parse
+
 from bs4 import BeautifulSoup
+from playwright.async_api import async_playwright
 
 async def _scrape_leads_async(search_query):
     leads = []
@@ -18,13 +15,19 @@ async def _scrape_leads_async(search_query):
             user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
         )
         page = await context.new_page()
-        await page.goto("https://www.yellowpageskenya.com/search?q=" + search_query)
+        encoded_query = urllib.parse.quote(search_query)
+        await page.goto("https://yellowpageskenya.com/search-results/" + encoded_query)
         await asyncio.sleep(random.uniform(3, 6))
         html = await page.content()
         soup = BeautifulSoup(html, 'html.parser')
-        for business in soup.select('.business-card')[:10]:
-            name = business.select_one('.name').text.strip() if business.select_one('.name') else "N/A"
-            phone = business.select_one('.phone').text.strip() if business.select_one('.phone') else "Hidden"
+        for business in soup.select('div.card')[:10]:
+            name_el = business.select_one('h2')
+            name = name_el.text.strip() if name_el else "N/A"
+            phone_el = business.select_one('a[href^="tel:"]')
+            if phone_el and phone_el.has_attr('href'):
+                phone = phone_el['href'].replace('tel:', '')
+            else:
+                phone = phone_el.text.strip() if phone_el else "Hidden"
             leads.append({"Business Name": name, "Contact": phone})
         await browser.close()
     return leads
