@@ -25,7 +25,7 @@ if search_button:
                 st.success(f"Found {len(df)} new leads!")
                 
                 # Display the data in a clean, interactive table
-                st.dataframe(df, use_container_width=True)
+                st.dataframe(df, width='stretch')
                 
                 # 4. Export Feature: Download as CSV (A value-add for clients)
                 csv = df.to_csv(index=False).encode('utf-8')

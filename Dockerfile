@@ -1,5 +1,5 @@
 # 1. Use the official Microsoft image that already has Python and Browser dependencies
-FROM mcr.microsoft.com/playwright/python:v1.49.0-jammy
+FROM mcr.microsoft.com/playwright/python:v1.58.0-jammy
 
 # 2. Set the working directory
 WORKDIR /app
