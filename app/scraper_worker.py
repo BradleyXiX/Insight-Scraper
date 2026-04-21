@@ -1,3 +1,10 @@
+"""
+Isolated web scraper worker for Insight Scraper.
+
+Utilizes Playwright and BeautifulSoup to asynchronously navigate directories
+and extract business leads. This script is intended to be executed as a 
+subprocess to prevent asyncio event loop conflicts in the main application.
+"""
 import asyncio
 import json
 import random
@@ -7,7 +14,17 @@ import urllib.parse
 from bs4 import BeautifulSoup
 from playwright.async_api import async_playwright
 
-async def _scrape_leads_async(search_query):
+async def _scrape_leads_async(search_query: str) -> list[dict[str, str]]:
+    """
+    Asynchronously scrape business listings for a given query.
+    
+    Args:
+        search_query (str): The search term to query on the directory.
+        
+    Returns:
+        list[dict[str, str]]: A list of dictionaries, each containing 
+                              'Business Name' and 'Contact' information.
+    """
     leads = []
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
