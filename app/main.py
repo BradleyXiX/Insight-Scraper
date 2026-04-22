@@ -37,3 +37,16 @@ def get_nairobi_leads(search_query: str) -> pd.DataFrame:
 if __name__ == "__main__":
     df = get_nairobi_leads("Law Firms")
     print(df)
+
+def lambda_handler(event, context):
+    # This is what AWS triggers on a schedule
+    query = event.get("query", "Law Firms Nairobi")
+    df = get_nairobi_leads(query)
+    
+    # In a real scenario, here we would call AWS SES to email the CSV
+    print(f"Successfully scraped {len(df)} leads.")
+    
+    return {
+        'statusCode': 200,
+        'body': f"Scraped {len(df)} leads for {query}"
+    }
