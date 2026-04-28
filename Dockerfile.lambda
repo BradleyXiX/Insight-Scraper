@@ -1,21 +1,22 @@
 # 1. Use the official AWS Lambda Python base image
-FROM public.ecr.aws/lambda/python:3.11
+FROM public.ecr.aws/lambda/python:3.12
 
-# 2. Install system dependencies for Playwright (Linux libraries)
-RUN yum install -y amazon-linux-extras && \
-    yum install -y atk cups-libs gtk3 libXcomposite alsa-lib \
-    libXcursor libXdamage libXext libXi libXrandr libXscrnsaver \
+# 2. Install system dependencies including build tools
+RUN dnf install -y atk cups-libs gtk3 libXcomposite alsa-lib \
+    libXcursor libXdamage libXext libXi libXrandr \
     pango at-spi2-atk libXt xorg-x11-server-Xvfb \
-    xorg-x11-xauth dbus-glib dbus-glib-devel nss mesa-libgbm
+    xorg-x11-xauth dbus-glib mesa-libgbm libdrm libxkbcommon
 
-# 3. Copy your requirements and install
+# 3. Copy your requirements and install pip packages
 COPY app/requirements.txt ${LAMBDA_TASK_ROOT}
 RUN pip install --upgrade pip setuptools wheel
-RUN pip install -r requirements.txt --only-binary :all:
-RUN playwright install chromium
+RUN pip install -r requirements.txt
 
-# 4. Copy your scraper code
+# 4. Install playwright browsers
+RUN python -m playwright install chromium
+
+# 5. Copy your scraper code
 COPY app/main.py ${LAMBDA_TASK_ROOT}
 
-# 5. Set the CMD to your 'handler' function inside main.py
+# 6. Set the CMD to your 'handler' function inside main.py
 CMD [ "main.lambda_handler" ]

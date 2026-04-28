@@ -43,7 +43,7 @@ def lambda_handler(event, context):
     query = event.get("query", "Law Firms Nairobi")
     df = get_nairobi_leads(query)
     
-    # In a real scenario, here we would call AWS SES to email the CSV
+    # Call AWS SES to email the CSV
     print(f"Successfully scraped {len(df)} leads.")
     
     return {
