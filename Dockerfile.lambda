@@ -15,8 +15,8 @@ RUN pip install -r requirements.txt
 # 4. Install playwright browsers
 RUN python -m playwright install chromium
 
-# 5. Copy your scraper code
-COPY app/main.py ${LAMBDA_TASK_ROOT}
+# 5. Copy ALL your scraper code (main.py AND scraper_worker.py)
+COPY app/ ${LAMBDA_TASK_ROOT}/
 
 # 6. Set the CMD to your 'handler' function inside main.py
 CMD [ "main.lambda_handler" ]

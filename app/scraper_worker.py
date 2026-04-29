@@ -22,8 +22,7 @@ async def _scrape_leads_async(search_query: str) -> list[dict[str, str]]:
         search_query (str): The search term to query on the directory.
         
     Returns:
-        list[dict[str, str]]: A list of dictionaries, each containing 
-                              'Business Name' and 'Contact' information.
+        list[dict[str, str]]: A list of dictionaries containing Name, Contact, and Website.
     """
     leads = []
     async with async_playwright() as p:
@@ -34,18 +33,39 @@ async def _scrape_leads_async(search_query: str) -> list[dict[str, str]]:
         page = await context.new_page()
         encoded_query = urllib.parse.quote(search_query)
         await page.goto("https://yellowpageskenya.com/search-results/" + encoded_query)
+        
+        # Give the page time to load completely
         await asyncio.sleep(random.uniform(3, 6))
         html = await page.content()
         soup = BeautifulSoup(html, 'html.parser')
+        
         for business in soup.select('div.card')[:10]:
+            # 1. Get Name
             name_el = business.select_one('h2')
             name = name_el.text.strip() if name_el else "N/A"
+            
+            # 2. Get Phone
             phone_el = business.select_one('a[href^="tel:"]')
             if phone_el and phone_el.has_attr('href'):
                 phone = phone_el['href'].replace('tel:', '')
             else:
                 phone = phone_el.text.strip() if phone_el else "Hidden"
-            leads.append({"Business Name": name, "Contact": phone})
+                
+            # 3. Get Website (NEW)
+            # Looking for links that go to external sites (often marked with target="_blank" or specific classes)
+            website = ""
+            for a_tag in business.select('a[href]'):
+                href = a_tag['href']
+                if href.startswith('http') and 'yellowpageskenya' not in href:
+                    website = href
+                    break
+            
+            leads.append({
+                "Business Name": name, 
+                "Contact": phone,
+                "Website": website
+            })
+            
         await browser.close()
     return leads
 
