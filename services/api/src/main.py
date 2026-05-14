@@ -1,21 +1,23 @@
-"""
-Core coordinator module for Insight Scraper.
-
-Delegates web scraping tasks to isolated subprocesses to ensure stability 
-and circumvent event loop collision issues commonly encountered when 
-integrating asyncio/Playwright directly within Streamlit's execution model.
-"""
 import sys
 import subprocess
 import json
-import pandas as pd
 import os
+import asyncio
+from fastapi import FastAPI, Depends, HTTPException, BackgroundTasks, Request
+from auth import verify_clerk_token
+from db import get_db, tenant_session
+from sqlalchemy.orm import Session
+from models import Lead, SearchHistory
+import stripe_service
 
-def get_nairobi_leads(search_query: str) -> pd.DataFrame:
-    """
-    Executes the scraper worker in a separate process for the specified query.
-    """
-    # Safely get the absolute path to scraper_worker.py in the same directory
+app = FastAPI(title="Foundry-SaaS API")
+
+# Concurrency lock to prevent IP blocking (Reserved Concurrency = 1)
+# This ensures only one scrape process happens at a time on this instance.
+scrape_lock = asyncio.Lock()
+
+def _run_scraper_subprocess(query: str) -> list:
+    """Runs the scraper worker in a separate process."""
     current_dir = os.path.dirname(os.path.abspath(__file__))
     worker_path = os.path.join(current_dir, 'scraper_worker.py')
     
@@ -24,56 +26,94 @@ def get_nairobi_leads(search_query: str) -> pd.DataFrame:
             sys.executable,
             "-u",
             worker_path,
-            search_query
+            query
         ], text=True)
         leads = json.loads(output)
+        return leads
     except subprocess.CalledProcessError as e:
         print(f"Worker process encountered an error: {e}", file=sys.stderr)
-        leads = []
+        return []
+
+@app.post("/api/scrape")
+async def start_scrape(
+    query: str, 
+    tenant_id: str = Depends(verify_clerk_token), 
+    db: Session = Depends(get_db)
+):
+    """
+    Endpoint to trigger a scraping job.
+    Requires valid Clerk authentication and an active Stripe subscription.
+    """
+    # 1. Check Stripe Status
+    sub_status = stripe_service.get_tenant_status(db, tenant_id)
+    if sub_status not in ["active", "trialing"]:
+        raise HTTPException(
+            status_code=402, 
+            detail=f"Payment required. Current subscription status: {sub_status}"
+        )
         
-    return pd.DataFrame(leads)
+    # 2. Enforce Concurrency Limit
+    if scrape_lock.locked():
+        raise HTTPException(
+            status_code=429, 
+            detail="A scrape job is currently running on the server. Please try again in a few moments."
+        )
+        
+    # Use a lock to strictly enforce concurrency limit
+    async with scrape_lock:
+        leads_data = await asyncio.to_thread(_run_scraper_subprocess, query)
+        
+    if not leads_data:
+        return {"message": "No leads found or error occurred.", "leads": []}
+        
+    # 3. Save Leads with tenant_id using RLS session
+    with tenant_session(tenant_id) as session:
+        # Save Search History
+        history = SearchHistory(tenant_id=tenant_id, query=query)
+        session.add(history)
+        
+        # Save Leads tagged with tenant_id
+        saved_leads = []
+        for lead in leads_data:
+            db_lead = Lead(
+                tenant_id=tenant_id,
+                business_name=lead.get("Business Name", "N/A"),
+                contact=lead.get("Contact", "Hidden"),
+                website=lead.get("Website", ""),
+                search_query=query
+            )
+            session.add(db_lead)
+            saved_leads.append(db_lead)
+            
+        session.commit()
+        
+        return {
+            "message": f"Successfully scraped and saved {len(saved_leads)} leads.",
+            "total_leads": len(saved_leads)
+        }
 
-def lambda_handler(event, context):
+@app.post("/api/webhooks/stripe")
+async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
+    """Endpoint for Stripe to send webhook events."""
+    return await stripe_service.process_webhook(request, db)
+
+@app.get("/api/leads")
+async def get_leads(tenant_id: str = Depends(verify_clerk_token)):
     """
-    This is what AWS triggers on a schedule.
+    Retrieves leads for the authenticated tenant.
+    Demonstrates RLS in action: the query automatically uses the tenant session.
     """
-    print("Lambda woke up! Checking EventBridge payload...")
-    
-    # Grab the query from EventBridge, default to "Law Firms Nairobi" if empty
-    query = event.get("query", "Law Firms Nairobi")
-    print(f"Starting scraper for: {query}")
-    
-    # 1. Get ALL leads from the target industry
-    df = get_nairobi_leads(query)
-    
-    if df.empty:
-        print("No leads found at all.")
-        return {'statusCode': 200, 'body': "0 leads found."}
+    with tenant_session(tenant_id) as session:
+        leads = session.query(Lead).order_by(Lead.created_at.desc()).limit(100).all()
+        return [{"id": l.id, "business_name": l.business_name, "contact": l.contact, "website": l.website, "query": l.search_query} for l in leads]
 
-    # 2. Filter out businesses that already have websites
-    if 'Website' in df.columns:
-        # Keep only rows where 'Website' is empty or NaN
-        df_no_website = df[df['Website'].isna() | (df['Website'] == '')]
-    else:
-        print("Warning: 'Website' column missing from scraped data.")
-        df_no_website = df
-    
-    # (Future step: Call AWS SES here to email the df_no_website.to_csv() file)
-    print(f"Scrape Complete! Found {len(df)} total leads.")
-    print(f"Filtered down to {len(df_no_website)} prime leads (NO WEBSITE).")
-    
-    return {
-        'statusCode': 200,
-        'body': f"Success. {len(df_no_website)} leads without websites found out of {len(df)} total for {query}."
-    }
+# AWS Lambda compatibility
+try:
+    from mangum import Mangum
+    handler = Mangum(app)
+except ImportError:
+    pass
 
-# Keep this block for local testing on your computer!
 if __name__ == "__main__":
-    print("Running locally...")
-    test_df = get_nairobi_leads("Law Firms Nairobi")
-    print("\n--- All Leads ---")
-    print(test_df)
-    
-    print("\n--- Leads WITHOUT Websites ---")
-    if 'Website' in test_df.columns:
-        print(test_df[test_df['Website'].isna() | (test_df['Website'] == '')])
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)
