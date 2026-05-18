@@ -1,65 +1,75 @@
-import Image from "next/image";
+import Link from "next/link";
+import { ArrowRight, Database, Shield, Zap } from "lucide-react";
 
 export default function Home() {
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
+    <div className="min-h-screen bg-zinc-950 text-zinc-50 font-sans selection:bg-indigo-500/30">
+      <div className="absolute inset-0 bg-[url('/grid.svg')] bg-center [mask-image:linear-gradient(180deg,white,rgba(255,255,255,0))]"></div>
+      
+      {/* Navigation */}
+      <nav className="relative z-10 flex items-center justify-between px-6 py-6 max-w-7xl mx-auto">
+        <div className="flex items-center gap-2">
+          <div className="w-8 h-8 rounded-lg bg-indigo-600 flex items-center justify-center">
+            <Database className="w-5 h-5 text-white" />
+          </div>
+          <span className="text-xl font-bold tracking-tight">Foundry-SaaS</span>
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
+        <div className="flex items-center gap-4">
+          <Link href="/sign-in" className="text-sm font-medium text-zinc-400 hover:text-white transition-colors">
+            Sign In
+          </Link>
+          <Link href="/dashboard" className="text-sm font-medium bg-white text-black px-4 py-2 rounded-full hover:bg-zinc-200 transition-colors">
+            Dashboard
+          </Link>
+        </div>
+      </nav>
+
+      {/* Hero Section */}
+      <main className="relative z-10 max-w-7xl mx-auto px-6 pt-32 pb-24 text-center">
+        <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 text-sm font-medium mb-8">
+          <span className="flex h-2 w-2 rounded-full bg-indigo-500"></span>
+          Now with Enterprise B2B Extraction
+        </div>
+        
+        <h1 className="text-5xl md:text-7xl font-extrabold tracking-tight mb-8 bg-gradient-to-br from-white to-zinc-500 bg-clip-text text-transparent">
+          Extract High-Value <br />
+          Business Leads.
+        </h1>
+        
+        <p className="max-w-2xl mx-auto text-lg md:text-xl text-zinc-400 mb-12">
+          Automate your prospecting workflow. Foundry-SaaS extracts, enriches, and organizes B2B directory data with unparalleled accuracy and scale.
+        </p>
+
+        <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
+          <Link href="/sign-up" className="flex items-center gap-2 px-8 py-4 bg-indigo-600 text-white rounded-full font-semibold text-lg hover:bg-indigo-700 transition-all shadow-[0_0_40px_-10px_rgba(79,70,229,0.5)]">
+            Start Free Trial <ArrowRight className="w-5 h-5" />
+          </Link>
+          <Link href="#features" className="flex items-center gap-2 px-8 py-4 bg-zinc-900 border border-zinc-800 text-white rounded-full font-semibold text-lg hover:bg-zinc-800 transition-all">
+            View Features
+          </Link>
         </div>
       </main>
+
+      {/* Features Grid */}
+      <section id="features" className="relative z-10 max-w-7xl mx-auto px-6 py-24 border-t border-zinc-800/50">
+        <div className="grid md:grid-cols-3 gap-8">
+          <div className="p-6 rounded-2xl bg-zinc-900/50 border border-zinc-800/50 backdrop-blur-sm">
+            <Zap className="w-10 h-10 text-indigo-400 mb-4" />
+            <h3 className="text-xl font-semibold mb-2">Lightning Fast</h3>
+            <p className="text-zinc-400">Asynchronous scraping engine powered by Playwright and FastAPI for maximum throughput.</p>
+          </div>
+          <div className="p-6 rounded-2xl bg-zinc-900/50 border border-zinc-800/50 backdrop-blur-sm">
+            <Shield className="w-10 h-10 text-emerald-400 mb-4" />
+            <h3 className="text-xl font-semibold mb-2">Ironclad Security</h3>
+            <p className="text-zinc-400">Strict tenant isolation using PostgreSQL Row-Level Security ensures your data never leaks.</p>
+          </div>
+          <div className="p-6 rounded-2xl bg-zinc-900/50 border border-zinc-800/50 backdrop-blur-sm">
+            <Database className="w-10 h-10 text-blue-400 mb-4" />
+            <h3 className="text-xl font-semibold mb-2">Structured Data</h3>
+            <p className="text-zinc-400">Automatically clean and structure messy directory HTML into ready-to-use CSV exports.</p>
+          </div>
+        </div>
+      </section>
     </div>
   );
 }
