@@ -1,6 +1,6 @@
 import { UserButton, OrganizationSwitcher } from "@clerk/nextjs";
 import Link from "next/link";
-import { LayoutDashboard, Search, History, Settings, Database } from "lucide-react";
+import { LayoutDashboard, Search, History, Settings, Database, CreditCard } from "lucide-react";
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   return (
@@ -27,6 +27,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             <Link href="/dashboard/history" className="flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-lg text-zinc-400 hover:text-white hover:bg-zinc-800/50 transition-colors">
               <History className="w-4 h-4" />
               History
+            </Link>
+            <Link href="/dashboard/billing" className="flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-lg text-zinc-400 hover:text-white hover:bg-zinc-800/50 transition-colors">
+              <CreditCard className="w-4 h-4" />
+              Billing
             </Link>
             <Link href="/dashboard/settings" className="flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-lg text-zinc-400 hover:text-white hover:bg-zinc-800/50 transition-colors">
               <Settings className="w-4 h-4" />
