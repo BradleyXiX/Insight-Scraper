@@ -23,7 +23,7 @@ export default function DashboardPage() {
     setIsScraping(true);
     
     try {
-      const token = await getToken();
+      // const token = await getToken();
       // Implementation for API call to /api/scrape
       console.log("Scraping for:", query, "Organization:", orgId);
       // await fetch("http://localhost:8000/api/scrape?query=" + encodeURIComponent(query), {
