@@ -10,11 +10,11 @@ from sqlalchemy.orm import Session
 from models import Lead, SearchHistory
 import stripe_service
 
-app = FastAPI(title="Foundry-SaaS API")
+if os.environ.get("AWS_LAMBDA_FUNCTION_NAME"):
+    os.environ["PLAYWRIGHT_BROWSERS_PATH"] = "/ms-playwright"
+    os.environ["HOME"] = "/tmp"
 
-# Concurrency lock to prevent IP blocking (Reserved Concurrency = 1)
-# This ensures only one scrape process happens at a time on this instance.
-scrape_lock = asyncio.Lock()
+app = FastAPI(title="Foundry-SaaS API")
 
 def _run_scraper_subprocess(query: str) -> list:
     """Runs the scraper worker in a separate process."""
@@ -52,16 +52,8 @@ async def start_scrape(
             detail=f"Payment required. Current subscription status: {sub_status}"
         )
         
-    # 2. Enforce Concurrency Limit
-    if scrape_lock.locked():
-        raise HTTPException(
-            status_code=429, 
-            detail="A scrape job is currently running on the server. Please try again in a few moments."
-        )
-        
-    # Use a lock to strictly enforce concurrency limit
-    async with scrape_lock:
-        leads_data = await asyncio.to_thread(_run_scraper_subprocess, query)
+    # 2. Enforce Concurrency Limit (Handled via AWS Reserved Concurrency configuration)
+    leads_data = await asyncio.to_thread(_run_scraper_subprocess, query)
         
     if not leads_data:
         return {"message": "No leads found or error occurred.", "leads": []}
