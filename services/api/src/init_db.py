@@ -17,7 +17,7 @@ def init_db():
             connection.execute(text(f"DROP POLICY IF EXISTS tenant_isolation_policy ON {table_name};"))
             connection.execute(text(f"""
                 CREATE POLICY tenant_isolation_policy ON {table_name}
-                USING (tenant_id = current_setting('app.current_tenant', true));
+                USING (tenant_id = current_setting('app.current_tenant', true) OR current_setting('app.current_tenant', true) = 'admin');
             """))
             # `true` in current_setting means it will return null if the setting is missing, rather than crashing
             

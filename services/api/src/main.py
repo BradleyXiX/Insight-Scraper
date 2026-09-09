@@ -10,10 +10,6 @@ from sqlalchemy.orm import Session
 from models import Lead, SearchHistory
 import stripe_service
 
-if os.environ.get("AWS_LAMBDA_FUNCTION_NAME"):
-    os.environ["PLAYWRIGHT_BROWSERS_PATH"] = "/ms-playwright"
-    os.environ["HOME"] = "/tmp"
-
 app = FastAPI(title="Foundry-SaaS API")
 
 def _run_scraper_subprocess(query: str) -> list:

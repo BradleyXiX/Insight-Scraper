@@ -12,6 +12,10 @@ COPY app/requirements.txt ${LAMBDA_TASK_ROOT}
 RUN pip install --upgrade pip setuptools wheel
 RUN pip install -r requirements.txt
 
+# 4. Configure Playwright environment for AWS Lambda
+ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+ENV HOME=/tmp
+
 # 4. Install playwright browsers
 RUN python -m playwright install chromium
 

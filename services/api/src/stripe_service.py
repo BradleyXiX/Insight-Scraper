@@ -2,6 +2,7 @@ import os
 import stripe
 from fastapi import Request, HTTPException
 from sqlalchemy.orm import Session
+from sqlalchemy import text
 from models import Subscription
 
 # Initialize Stripe
@@ -36,6 +37,7 @@ async def process_webhook(request: Request, db: Session):
         raise HTTPException(status_code=400, detail="Invalid signature")
 
     # Handle the event
+    db.execute(text("SET LOCAL app.current_tenant = 'admin'"))
     if event['type'] == 'customer.subscription.created' or event['type'] == 'customer.subscription.updated':
         subscription_data = event['data']['object']
         handle_subscription_update(db, subscription_data)
