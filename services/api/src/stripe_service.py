@@ -92,3 +92,40 @@ def handle_payment_failed(db: Session, invoice_data: dict):
             # for now we'll mark as past_due
             sub.status = "past_due"
             db.commit()
+
+def create_checkout_session(db: Session, tenant_id: str, price_id: str, success_url: str, cancel_url: str) -> str:
+    """
+    Creates a Stripe Checkout Session for a tenant to purchase a subscription.
+    Returns the Checkout Session URL.
+    """
+    subscription = db.query(Subscription).filter(Subscription.tenant_id == tenant_id).first()
+    customer_id = subscription.stripe_customer_id if subscription else None
+    
+    session_params = {
+        "payment_method_types": ["card"],
+        "line_items": [
+            {
+                "price": price_id,
+                "quantity": 1,
+            },
+        ],
+        "mode": "subscription",
+        "success_url": success_url,
+        "cancel_url": cancel_url,
+        "subscription_data": {
+            "metadata": {
+                "tenant_id": tenant_id
+            }
+        }
+    }
+    
+    if customer_id:
+        session_params["customer"] = customer_id
+    else:
+        session_params["client_reference_id"] = tenant_id
+
+    try:
+        checkout_session = stripe.checkout.Session.create(**session_params)
+        return checkout_session.url
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))

@@ -4,6 +4,7 @@ import json
 import os
 import asyncio
 from fastapi import FastAPI, Depends, HTTPException, BackgroundTasks, Request
+from pydantic import BaseModel
 from auth import verify_clerk_token
 from db import get_db, tenant_session
 from sqlalchemy.orm import Session
@@ -84,6 +85,24 @@ async def start_scrape(
 async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
     """Endpoint for Stripe to send webhook events."""
     return await stripe_service.process_webhook(request, db)
+
+class CheckoutRequest(BaseModel):
+    price_id: str
+    success_url: str
+    cancel_url: str
+
+@app.post("/api/checkout")
+async def create_checkout(
+    request: CheckoutRequest,
+    tenant_id: str = Depends(verify_clerk_token),
+    db: Session = Depends(get_db)
+):
+    """
+    Creates a Stripe Checkout Session for the authenticated tenant.
+    """
+    return {"url": stripe_service.create_checkout_session(
+        db, tenant_id, request.price_id, request.success_url, request.cancel_url
+    )}
 
 @app.get("/api/leads")
 async def get_leads(tenant_id: str = Depends(verify_clerk_token)):
