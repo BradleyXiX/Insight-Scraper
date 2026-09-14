@@ -8,7 +8,7 @@ RUN dnf install -y atk cups-libs gtk3 libXcomposite alsa-lib \
     xorg-x11-xauth dbus-glib mesa-libgbm libdrm libxkbcommon
 
 # 3. Copy your requirements and install pip packages
-COPY app/requirements.txt ${LAMBDA_TASK_ROOT}
+COPY src/requirements.txt ${LAMBDA_TASK_ROOT}
 RUN pip install --upgrade pip setuptools wheel
 RUN pip install -r requirements.txt
 
@@ -20,7 +20,7 @@ ENV HOME=/tmp
 RUN python -m playwright install chromium
 
 # 5. Copy ALL your scraper code (main.py AND scraper_worker.py)
-COPY app/ ${LAMBDA_TASK_ROOT}/
+COPY src/ ${LAMBDA_TASK_ROOT}/
 
 # 6. Set the CMD to your 'handler' function inside main.py
 CMD [ "main.lambda_handler" ]
