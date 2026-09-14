@@ -84,7 +84,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             </div>
             <div className="pl-6 border-l border-white/10 flex items-center">
               <UserButton 
-                afterSignOutUrl="/"
+
                 appearance={{
                   elements: {
                     userButtonAvatarBox: "w-8 h-8 rounded-full border border-white/20 shadow-sm hover:scale-105 transition-transform",
