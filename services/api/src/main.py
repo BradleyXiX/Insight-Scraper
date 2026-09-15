@@ -117,7 +117,7 @@ async def get_leads(tenant_id: str = Depends(verify_clerk_token)):
 # AWS Lambda compatibility
 try:
     from mangum import Mangum
-    handler = Mangum(app)
+    lambda_handler = Mangum(app)
 except ImportError:
     pass
 
