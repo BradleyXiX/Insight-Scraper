@@ -9,12 +9,7 @@ export default function DashboardPage() {
   const [query, setQuery] = useState("");
   const [isScraping, setIsScraping] = useState(false);
   
-  // Mock Data for the UI
-  const mockLeads = [
-    { id: 1, name: "Acme Corp", contact: "john@acmecorp.com", website: "acmecorp.com", status: "Extracted" },
-    { id: 2, name: "Stark Industries", contact: "tony@stark.com", website: "stark.com", status: "Extracted" },
-    { id: 3, name: "Wayne Enterprises", contact: "bruce@wayne.com", website: "wayne.com", status: "Extracted" },
-  ];
+  const [leads, setLeads] = useState<any[]>([]);
 
   const handleScrape = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -23,18 +18,34 @@ export default function DashboardPage() {
     setIsScraping(true);
     
     try {
-      // const token = await getToken();
-      // Implementation for API call to /api/scrape
-      console.log("Scraping for:", query, "Organization:", orgId);
-      // await fetch("http://localhost:8000/api/scrape?query=" + encodeURIComponent(query), {
-      //   method: "POST",
-      //   headers: { Authorization: `Bearer ${token}` }
-      // });
+      const token = await getToken();
       
-      // Simulate network delay
-      await new Promise(resolve => setTimeout(resolve, 2000));
+      console.log("Scraping for:", query, "Organization:", orgId);
+      const res = await fetch("http://localhost:8000/api/scrape?query=" + encodeURIComponent(query), {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      
+      if (!res.ok) {
+        const err = await res.text();
+        throw new Error(err);
+      }
+      
+      const data = await res.json();
+      console.log(data);
+      
+      // Fetch the updated list of leads from the database
+      const leadsRes = await fetch("http://localhost:8000/api/leads", {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      
+      if (leadsRes.ok) {
+        const leadsData = await leadsRes.json();
+        setLeads(leadsData);
+      }
     } catch (error) {
       console.error(error);
+      alert("Failed to scrape leads: " + error);
     } finally {
       setIsScraping(false);
     }
@@ -43,7 +54,7 @@ export default function DashboardPage() {
   return (
     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-1000">
       <div className="flex flex-col gap-2">
-        <h1 className="text-3xl font-bold tracking-tight">Lead Extraction</h1>
+        <h1 className="text-3xl font-bold tracking-tight text-white">Lead Extraction</h1>
         <p className="text-zinc-400">Enter a target niche and location to begin scraping directories.</p>
       </div>
 
@@ -89,7 +100,7 @@ export default function DashboardPage() {
       {/* Results Table */}
       <div className="space-y-4">
         <div className="flex items-center justify-between">
-          <h2 className="text-xl font-semibold">Recent Leads</h2>
+          <h2 className="text-xl font-semibold text-white">Recent Leads</h2>
           <button className="flex items-center gap-2 text-sm font-medium text-zinc-400 hover:text-white transition-colors">
             <Download className="w-4 h-4" />
             Export CSV
@@ -107,19 +118,23 @@ export default function DashboardPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-zinc-800/50">
-              {mockLeads.map((lead) => (
+              {leads.map((lead) => (
                 <tr key={lead.id} className="hover:bg-zinc-800/20 transition-colors">
-                  <td className="px-6 py-4 font-medium text-white">{lead.name}</td>
-                  <td className="px-6 py-4 text-zinc-400">{lead.contact}</td>
+                  <td className="px-6 py-4 font-medium text-white">{lead.business_name || lead.name || "Unknown"}</td>
+                  <td className="px-6 py-4 text-zinc-400">{lead.contact || "N/A"}</td>
                   <td className="px-6 py-4">
-                    <a href={`https://${lead.website}`} className="text-indigo-400 hover:text-indigo-300 hover:underline">
-                      {lead.website}
-                    </a>
+                    {lead.website ? (
+                      <a href={lead.website.startsWith('http') ? lead.website : `https://${lead.website}`} target="_blank" rel="noreferrer" className="text-indigo-400 hover:text-indigo-300 hover:underline">
+                        {lead.website.replace(/^https?:\/\//, '')}
+                      </a>
+                    ) : (
+                      <span className="text-zinc-600">No website</span>
+                    )}
                   </td>
                   <td className="px-6 py-4">
                     <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
                       <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
-                      {lead.status}
+                      Extracted
                     </span>
                   </td>
                 </tr>
@@ -127,7 +142,7 @@ export default function DashboardPage() {
             </tbody>
           </table>
           
-          {mockLeads.length === 0 && (
+          {leads.length === 0 && (
             <div className="p-8 text-center text-zinc-500">
               No leads found. Start an extraction to populate this table.
             </div>

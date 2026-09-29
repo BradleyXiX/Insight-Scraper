@@ -4,6 +4,7 @@ import json
 import os
 import asyncio
 from fastapi import FastAPI, Depends, HTTPException, BackgroundTasks, Request
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from auth import verify_clerk_token
 from db import get_db, tenant_session
@@ -12,6 +13,14 @@ from models import Lead, SearchHistory
 import stripe_service
 
 app = FastAPI(title="Foundry-SaaS API")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 def _run_scraper_subprocess(query: str) -> list:
     """Runs the scraper worker in a separate process."""
@@ -105,7 +114,9 @@ async def create_checkout(
     )}
 
 @app.get("/api/leads")
-async def get_leads(tenant_id: str = Depends(verify_clerk_token)):
+async def get_leads(
+    tenant_id: str = Depends(verify_clerk_token)
+):
     """
     Retrieves leads for the authenticated tenant.
     Demonstrates RLS in action: the query automatically uses the tenant session.

@@ -25,11 +25,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           </div>
           <nav className="space-y-1">
             <Link href="/dashboard" className="group flex items-center gap-3 px-3 py-2.5 text-sm font-medium rounded-xl bg-white/5 text-indigo-300 ring-1 ring-white/10 hover:bg-white/10 transition-all duration-300">
-              <LayoutDashboard className="w-4 h-4 group-hover:scale-110 transition-transform duration-300" />
-              Overview
-            </Link>
-            <Link href="/dashboard/search" className="group flex items-center gap-3 px-3 py-2.5 text-sm font-medium rounded-xl text-zinc-400 hover:text-white hover:bg-white/5 transition-all duration-300">
-              <Search className="w-4 h-4 group-hover:text-indigo-400 transition-colors" />
+              <Search className="w-4 h-4 group-hover:scale-110 transition-transform duration-300" />
               New Extraction
             </Link>
             <Link href="/dashboard/history" className="group flex items-center gap-3 px-3 py-2.5 text-sm font-medium rounded-xl text-zinc-400 hover:text-white hover:bg-white/5 transition-all duration-300">

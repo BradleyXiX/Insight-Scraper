@@ -39,7 +39,15 @@ async def _scrape_leads_async(search_query: str) -> list[dict[str, str]]:
         html = await page.content()
         soup = BeautifulSoup(html, 'html.parser')
         
-        for business in soup.select('div.card')[:10]:
+        # Yellow Pages Kenya updated their site to Next.js/Tailwind CSS. 
+        # The old 'div.card' no longer works. We find cards by locating h2 tags.
+        cards = []
+        for h2 in soup.find_all('h2'):
+            card = h2.find_parent('div', class_='bg-white')
+            if card and card not in cards and card.select_one('a[href^="tel:"]'):
+                cards.append(card)
+
+        for business in cards[:10]:
             # 1. Get Name
             name_el = business.select_one('h2')
             name = name_el.text.strip() if name_el else "N/A"
@@ -49,10 +57,9 @@ async def _scrape_leads_async(search_query: str) -> list[dict[str, str]]:
             if phone_el and phone_el.has_attr('href'):
                 phone = phone_el['href'].replace('tel:', '')
             else:
-                phone = phone_el.text.strip() if phone_el else "Hidden"
+                phone = "Hidden"
                 
             # 3. Get Website (NEW)
-            # Looking for links that go to external sites (often marked with target="_blank" or specific classes)
             website = ""
             for a_tag in business.select('a[href]'):
                 href = a_tag['href']
