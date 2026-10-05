@@ -52,29 +52,29 @@ export default function DashboardPage() {
   };
 
   return (
-    <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-1000">
+    <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
       <div className="flex flex-col gap-2">
-        <h1 className="text-3xl font-bold tracking-tight text-white">Lead Extraction</h1>
-        <p className="text-zinc-400">Enter a target niche and location to begin scraping directories.</p>
+        <h1 className="text-3xl font-display text-white">Lead Extraction</h1>
+        <p className="text-foreground/70">Enter a target niche and location to begin scraping directories.</p>
       </div>
 
       {/* Action Bar */}
-      <div className="bg-zinc-900/50 border border-zinc-800/50 rounded-2xl p-6 backdrop-blur-sm">
+      <div className="panel p-6">
         <form onSubmit={handleScrape} className="flex gap-4">
           <div className="relative flex-1">
-            <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-zinc-500" />
+            <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-foreground/50" />
             <input 
               type="text" 
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder="e.g. Plumbers in New York City" 
-              className="w-full bg-zinc-950 border border-zinc-800 rounded-xl py-3 pl-12 pr-4 text-white placeholder:text-zinc-500 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all"
+              className="w-full bg-surface border border-border rounded-none py-3 pl-12 pr-4 text-white placeholder:text-foreground/40 focus:outline-none focus:border-primary-500 focus:ring-1 focus:ring-primary-500 transition-all font-mono"
             />
           </div>
           <button 
             type="submit"
             disabled={isScraping || !query}
-            className="flex items-center gap-2 bg-indigo-600 text-white px-8 py-3 rounded-xl font-medium hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-[0_0_20px_-5px_rgba(79,70,229,0.4)] hover:shadow-[0_0_25px_-5px_rgba(79,70,229,0.6)]"
+            className="flex items-center gap-2 bg-primary-600 text-white px-8 py-3 rounded-none font-medium hover:bg-primary-500 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-glow uppercase tracking-wider text-sm"
           >
             {isScraping ? (
               <span className="flex items-center gap-2">
@@ -91,7 +91,7 @@ export default function DashboardPage() {
         </form>
         
         {/* Helper Note */}
-        <div className="flex items-center gap-2 mt-4 text-sm text-zinc-500">
+        <div className="flex items-center gap-2 mt-4 text-sm text-foreground/50">
           <AlertCircle className="w-4 h-4" />
           <p>Scraping jobs may take a few minutes to complete depending on the directory size. Concurrency is limited to 1 active job.</p>
         </div>
@@ -100,16 +100,16 @@ export default function DashboardPage() {
       {/* Results Table */}
       <div className="space-y-4">
         <div className="flex items-center justify-between">
-          <h2 className="text-xl font-semibold text-white">Recent Leads</h2>
-          <button className="flex items-center gap-2 text-sm font-medium text-zinc-400 hover:text-white transition-colors">
+          <h2 className="text-xl font-display text-white">Recent Leads</h2>
+          <button className="flex items-center gap-2 text-sm font-medium text-foreground/60 hover:text-white transition-colors">
             <Download className="w-4 h-4" />
             Export CSV
           </button>
         </div>
         
-        <div className="bg-zinc-900/50 border border-zinc-800/50 rounded-2xl overflow-hidden backdrop-blur-sm">
+        <div className="panel overflow-hidden">
           <table className="w-full text-sm text-left">
-            <thead className="text-xs text-zinc-400 uppercase bg-zinc-950/50 border-b border-zinc-800/50">
+            <thead className="text-xs text-foreground/50 uppercase bg-surface border-b border-border">
               <tr>
                 <th className="px-6 py-4 font-medium">Business Name</th>
                 <th className="px-6 py-4 font-medium">Contact Details</th>
@@ -117,23 +117,23 @@ export default function DashboardPage() {
                 <th className="px-6 py-4 font-medium">Status</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-zinc-800/50">
+            <tbody className="divide-y divide-border">
               {leads.map((lead) => (
-                <tr key={lead.id} className="hover:bg-zinc-800/20 transition-colors">
+                <tr key={lead.id} className="hover:bg-surface-hover transition-colors">
                   <td className="px-6 py-4 font-medium text-white">{lead.business_name || lead.name || "Unknown"}</td>
-                  <td className="px-6 py-4 text-zinc-400">{lead.contact || "N/A"}</td>
+                  <td className="px-6 py-4 text-foreground/70">{lead.contact || "N/A"}</td>
                   <td className="px-6 py-4">
                     {lead.website ? (
-                      <a href={lead.website.startsWith('http') ? lead.website : `https://${lead.website}`} target="_blank" rel="noreferrer" className="text-indigo-400 hover:text-indigo-300 hover:underline">
+                      <a href={lead.website.startsWith('http') ? lead.website : `https://${lead.website}`} target="_blank" rel="noreferrer" className="text-primary-400 hover:text-primary-300 hover:underline">
                         {lead.website.replace(/^https?:\/\//, '')}
                       </a>
                     ) : (
-                      <span className="text-zinc-600">No website</span>
+                      <span className="text-foreground/40">No website</span>
                     )}
                   </td>
                   <td className="px-6 py-4">
-                    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-none text-xs font-bold bg-[var(--color-success-bg)] text-success-400 border border-success-500 uppercase tracking-widest">
+                      <span className="w-1.5 h-1.5 rounded-none bg-success-500"></span>
                       Extracted
                     </span>
                   </td>
@@ -143,7 +143,7 @@ export default function DashboardPage() {
           </table>
           
           {leads.length === 0 && (
-            <div className="p-8 text-center text-zinc-500">
+            <div className="p-8 text-center text-foreground/50 font-mono text-sm">
               No leads found. Start an extraction to populate this table.
             </div>
           )}

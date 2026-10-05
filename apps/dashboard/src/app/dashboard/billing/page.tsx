@@ -13,18 +13,18 @@ export default function BillingPage() {
     try {
       setIsLoading(true);
       setError(null);
-      
+
       const response = await fetch("/api/stripe/checkout", {
         method: "POST",
       });
-      
+
       if (!response.ok) {
         if (response.status === 403) {
           throw new Error("You must create or select an organization before subscribing.");
         }
         throw new Error("Failed to create checkout session");
       }
-      
+
       const { url } = await response.json();
       if (url) {
         window.location.href = url; // Redirect to Stripe Checkout
@@ -64,126 +64,120 @@ export default function BillingPage() {
       )}
 
       {!orgId && !error && (
-         <div className="bg-amber-500/10 border border-amber-500/20 text-amber-400 px-5 py-4 rounded-2xl flex items-center gap-4 backdrop-blur-sm shadow-xl shadow-amber-500/5">
-         <Building2 className="w-6 h-6 shrink-0" />
-         <div>
-           <h4 className="font-bold">Organization Required</h4>
-           <p className="text-sm opacity-90">Please select or create an Organization using the switcher in the top right before subscribing to a plan.</p>
-         </div>
-       </div>
+        <div className="bg-amber-500/10 border border-amber-500/20 text-amber-400 px-5 py-4 rounded-2xl flex items-center gap-4 backdrop-blur-sm shadow-xl shadow-amber-500/5">
+          <Building2 className="w-6 h-6 shrink-0" />
+          <div>
+            <h4 className="font-bold">Organization Required</h4>
+            <p className="text-sm opacity-90">Please select or create an Organization using the switcher in the top right before subscribing to a plan.</p>
+          </div>
+        </div>
       )}
 
       {/* Pricing Cards Grid */}
       <div className="grid lg:grid-cols-2 gap-8 items-stretch pt-4">
         {/* Pro Plan */}
-        <div className="relative group rounded-3xl p-px bg-gradient-to-b from-indigo-500 to-violet-600 shadow-[0_0_40px_-10px_rgba(79,70,229,0.3)] hover:shadow-[0_0_60px_-10px_rgba(79,70,229,0.5)] transition-all duration-500 hover:-translate-y-1">
-          <div className="absolute top-0 right-8 -translate-y-1/2">
-            <div className="bg-gradient-to-r from-indigo-500 to-violet-500 text-white text-xs font-bold px-4 py-1.5 rounded-full uppercase tracking-widest shadow-lg shadow-indigo-500/30 ring-1 ring-white/20">
+        <div className="panel border-primary-500 shadow-glow transition-all duration-500 hover:-translate-y-1 flex flex-col p-8 sm:p-10 relative">
+
+          <div className="flex items-start justify-between mb-6">
+            <div className="flex items-center gap-4">
+              <div className="w-12 h-12 bg-primary-500/20 flex items-center justify-center border border-primary-500/30">
+                <Zap className="w-6 h-6 text-primary-400" />
+              </div>
+              <div>
+                <h3 className="text-2xl font-display text-white uppercase tracking-wider">Pro Extract</h3>
+                <p className="text-sm font-mono text-foreground/50">Everything you need to scale</p>
+              </div>
+            </div>
+            <div className="bg-primary-500 text-white text-xs font-bold px-3 py-1 font-mono border border-primary-400 shadow-glow uppercase tracking-widest shrink-0">
               Most Popular
             </div>
           </div>
-          
-          <div className="relative h-full bg-zinc-950 rounded-[calc(1.5rem-1px)] p-8 sm:p-10 flex flex-col overflow-hidden">
-            <div className="absolute inset-0 bg-gradient-to-br from-indigo-500/10 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
-            
-            <div className="flex items-center gap-4 mb-6">
-              <div className="w-12 h-12 rounded-xl bg-indigo-500/20 flex items-center justify-center ring-1 ring-indigo-500/30">
-                <Zap className="w-6 h-6 text-indigo-400" />
-              </div>
-              <div>
-                <h3 className="text-2xl font-bold text-white">Pro Extract</h3>
-                <p className="text-sm text-zinc-400">Everything you need to scale</p>
-              </div>
-            </div>
-            
-            <div className="mb-8 flex items-baseline gap-2">
-              <span className="text-5xl font-extrabold text-white">$49</span>
-              <span className="text-lg text-zinc-400 font-medium">/month</span>
-            </div>
-            
-            <ul className="space-y-4 mb-10 flex-1">
-              {[
-                "Unlimited B2B Searches", 
-                "High-speed Concurrency (10x)", 
-                "Export to CSV & JSON", 
-                "Priority 24/7 Support", 
-                "Automated Data Enrichment"
-              ].map((feature, i) => (
-                <li key={i} className="flex items-start gap-3 text-zinc-300">
-                  <div className="mt-1 rounded-full bg-indigo-500/20 p-1 ring-1 ring-indigo-500/30">
-                    <Check className="w-3 h-3 text-indigo-400 shrink-0" />
-                  </div>
-                  <span className="font-medium text-sm">{feature}</span>
-                </li>
-              ))}
-            </ul>
-            
-            <button 
-              onClick={handleSubscribe}
-              disabled={isLoading || !orgId}
-              className="relative w-full py-4 rounded-xl bg-white text-zinc-950 font-bold text-lg hover:bg-zinc-200 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 group overflow-hidden"
-            >
-              <div className="absolute inset-0 bg-gradient-to-r from-indigo-100 via-white to-indigo-100 opacity-0 group-hover:opacity-100 group-hover:animate-pulse transition-opacity" />
-              <span className="relative z-10 flex items-center gap-2">
-                {isLoading ? (
-                  "Redirecting to Stripe..."
-                ) : (
-                  <>
-                    <CreditCard className="w-5 h-5" />
-                    Subscribe Now
-                  </>
-                )}
-              </span>
-            </button>
+
+          <div className="mb-8 flex items-baseline gap-2">
+            <span className="text-5xl font-extrabold text-white">$49</span>
+            <span className="text-lg text-zinc-400 font-medium">/month</span>
           </div>
+
+          <ul className="space-y-4 mb-10 flex-1">
+            {[
+              "Unlimited B2B Searches",
+              "High-speed Concurrency (10x)",
+              "Export to CSV & JSON",
+              "Priority 24/7 Support",
+              "Automated Data Enrichment"
+            ].map((feature, i) => (
+              <li key={i} className="flex items-start gap-3 text-zinc-300">
+                <div className="mt-1 rounded-full bg-indigo-500/20 p-1 ring-1 ring-indigo-500/30">
+                  <Check className="w-3 h-3 text-indigo-400 shrink-0" />
+                </div>
+                <span className="font-medium text-sm">{feature}</span>
+              </li>
+            ))}
+          </ul>
+
+          <button
+            onClick={handleSubscribe}
+            disabled={isLoading || !orgId}
+            className="relative w-full py-4 rounded-xl bg-white text-zinc-950 font-bold text-lg hover:bg-zinc-200 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 group overflow-hidden"
+          >
+            <div className="absolute inset-0 bg-gradient-to-r from-indigo-100 via-white to-indigo-100 opacity-0 group-hover:opacity-100 group-hover:animate-pulse transition-opacity" />
+            <span className="relative z-10 flex items-center gap-2">
+              {isLoading ? (
+                "Redirecting to Stripe..."
+              ) : (
+                <>
+                  <CreditCard className="w-5 h-5" />
+                  Subscribe Now
+                </>
+              )}
+            </span>
+          </button>
         </div>
 
         {/* Enterprise Plan */}
-        <div className="rounded-3xl p-px bg-zinc-800/50 hover:bg-zinc-700/50 transition-colors duration-500">
-          <div className="relative h-full bg-zinc-950/80 backdrop-blur-xl rounded-[calc(1.5rem-1px)] p-8 sm:p-10 flex flex-col">
-            <div className="flex items-center gap-4 mb-6">
-              <div className="w-12 h-12 rounded-xl bg-zinc-800 flex items-center justify-center ring-1 ring-zinc-700">
-                <ShieldCheck className="w-6 h-6 text-zinc-300" />
-              </div>
-              <div>
-                <h3 className="text-2xl font-bold text-white">Enterprise</h3>
-                <p className="text-sm text-zinc-400">Custom tailored solutions</p>
-              </div>
+        <div className="panel border-border transition-colors duration-500 hover:border-foreground/30 flex flex-col p-8 sm:p-10 relative">
+          <div className="flex items-center gap-4 mb-6">
+            <div className="w-12 h-12 bg-surface-hover flex items-center justify-center border border-border">
+              <ShieldCheck className="w-6 h-6 text-foreground/70" />
             </div>
-            
-            <div className="mb-8 flex items-baseline gap-2">
-              <span className="text-5xl font-extrabold text-white">Custom</span>
+            <div>
+              <h3 className="text-2xl font-display text-white uppercase tracking-wider">Enterprise</h3>
+              <p className="text-sm font-mono text-foreground/50">Custom tailored solutions</p>
             </div>
-            
-            <ul className="space-y-4 mb-10 flex-1">
-              {[
-                "Dedicated Server Infrastructure", 
-                "Bypass Rate Limits", 
-                "Custom Data Formatting", 
-                "Dedicated Account Manager", 
-                "99.9% Uptime SLA Guarantee"
-              ].map((feature, i) => (
-                <li key={i} className="flex items-start gap-3 text-zinc-400">
-                  <div className="mt-1 rounded-full bg-zinc-800 p-1 ring-1 ring-zinc-700">
-                    <Check className="w-3 h-3 text-zinc-500 shrink-0" />
-                  </div>
-                  <span className="font-medium text-sm">{feature}</span>
-                </li>
-              ))}
-            </ul>
-            
-            <button className="w-full py-4 rounded-xl bg-transparent text-white font-bold text-lg border-2 border-zinc-800 hover:border-zinc-600 hover:bg-zinc-800/50 transition-all">
-              Contact Sales
-            </button>
           </div>
+
+          <div className="mb-8 flex items-baseline gap-2">
+            <span className="text-5xl font-extrabold text-white">Custom</span>
+          </div>
+
+          <ul className="space-y-4 mb-10 flex-1">
+            {[
+              "Dedicated Server Infrastructure",
+              "Bypass Rate Limits",
+              "Custom Data Formatting",
+              "Dedicated Account Manager",
+              "99.9% Uptime SLA Guarantee"
+            ].map((feature, i) => (
+              <li key={i} className="flex items-start gap-3 text-foreground/70">
+                <div className="mt-1 bg-surface-hover p-1 border border-border">
+                  <Check className="w-3 h-3 text-foreground/50 shrink-0" />
+                </div>
+                <span className="font-mono text-sm">{feature}</span>
+              </li>
+            ))}
+          </ul>
+
+          <button className="w-full py-4 bg-surface text-white font-mono uppercase tracking-wider font-bold text-lg border border-border hover:bg-surface-hover transition-all shadow-none">
+            Contact Sales
+          </button>
         </div>
       </div>
-      
+
       {/* Footer Features */}
       <div className="grid grid-cols-3 gap-6 pt-12 border-t border-white/5 mt-12 text-center text-sm text-zinc-500">
         <div className="flex flex-col items-center gap-2">
           <div className="w-10 h-10 rounded-full bg-white/5 flex items-center justify-center mb-2">
-             <svg className="w-5 h-5 text-zinc-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg>
+            <svg className="w-5 h-5 text-zinc-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg>
           </div>
           <span className="font-medium text-zinc-300">Secure Payments</span>
           <span>Powered by Stripe</span>

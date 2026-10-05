@@ -1,89 +1,98 @@
+"use client";
+
 import { UserButton, OrganizationSwitcher } from "@clerk/nextjs";
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { LayoutDashboard, Search, History, Settings, Database, CreditCard, Sparkles } from "lucide-react";
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
+  const pathname = usePathname();
+
+  const getLinkClasses = (path: string) => {
+    const isActive = pathname === path;
+    return `group flex items-center gap-3 px-4 py-3 text-sm font-bold uppercase tracking-wider transition-all duration-300 border ${
+      isActive 
+        ? "bg-primary-600/10 text-primary-400 border-primary-500 shadow-glow" 
+        : "text-foreground/50 border-transparent hover:text-foreground hover:bg-surface-hover hover:border-border"
+    }`;
+  };
+
   return (
-    <div className="flex h-screen bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-zinc-900 via-zinc-950 to-black text-zinc-50 selection:bg-indigo-500/30 font-sans">
+    <div className="flex h-screen bg-background text-foreground font-sans">
       {/* Sidebar */}
-      <aside className="w-64 border-r border-white/5 bg-black/20 backdrop-blur-2xl flex flex-col relative overflow-hidden">
-        {/* Subtle decorative glow in sidebar */}
-        <div className="absolute top-0 left-0 w-full h-32 bg-indigo-500/10 blur-[50px] -z-10 rounded-full" />
-        
-        <div className="h-16 flex items-center px-6 border-b border-white/5 gap-3">
-          <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-indigo-500 to-violet-600 flex items-center justify-center shadow-lg shadow-indigo-500/20 ring-1 ring-white/10">
-            <Database className="w-4 h-4 text-white drop-shadow-sm" />
+      <aside className="w-64 border-r border-border bg-surface flex flex-col relative overflow-hidden shrink-0">
+        <div className="h-16 flex items-center px-6 border-b border-border gap-3 bg-surface">
+          <div className="w-8 h-8 bg-primary-600 flex items-center justify-center border border-primary-500 shadow-glow">
+            <Database className="w-4 h-4 text-white" />
           </div>
-          <span className="font-bold tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-white to-zinc-400">
+          <span className="font-display font-bold text-white uppercase tracking-widest text-sm">
             Foundry-SaaS
           </span>
         </div>
         
-        <div className="p-4 flex-1">
-          <div className="text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-3 px-3">
-            Menu
+        <div className="p-4 flex-1 flex flex-col gap-8">
+          <div>
+            <div className="text-xs font-bold text-foreground/40 uppercase tracking-widest mb-3 px-4 font-mono">
+              Menu
+            </div>
+            <nav className="space-y-1">
+              <Link href="/dashboard" className={getLinkClasses("/dashboard")}>
+                <Search className="w-4 h-4" />
+                New Extraction
+              </Link>
+              <Link href="/dashboard/history" className={getLinkClasses("/dashboard/history")}>
+                <History className="w-4 h-4" />
+                History
+              </Link>
+            </nav>
           </div>
-          <nav className="space-y-1">
-            <Link href="/dashboard" className="group flex items-center gap-3 px-3 py-2.5 text-sm font-medium rounded-xl bg-white/5 text-indigo-300 ring-1 ring-white/10 hover:bg-white/10 transition-all duration-300">
-              <Search className="w-4 h-4 group-hover:scale-110 transition-transform duration-300" />
-              New Extraction
-            </Link>
-            <Link href="/dashboard/history" className="group flex items-center gap-3 px-3 py-2.5 text-sm font-medium rounded-xl text-zinc-400 hover:text-white hover:bg-white/5 transition-all duration-300">
-              <History className="w-4 h-4 group-hover:text-indigo-400 transition-colors" />
-              History
-            </Link>
-          </nav>
           
-          <div className="text-xs font-semibold text-zinc-500 uppercase tracking-wider mt-8 mb-3 px-3">
-            Settings
-          </div>
-          <nav className="space-y-1">
-            <Link href="/dashboard/billing" className="group flex items-center gap-3 px-3 py-2.5 text-sm font-medium rounded-xl text-zinc-400 hover:text-white hover:bg-white/5 transition-all duration-300 relative overflow-hidden">
-              <CreditCard className="w-4 h-4 group-hover:text-indigo-400 transition-colors z-10" />
-              <span className="z-10">Billing & Plans</span>
-              <div className="absolute inset-0 bg-gradient-to-r from-indigo-500/0 via-indigo-500/5 to-indigo-500/0 translate-x-[-100%] group-hover:translate-x-[100%] transition-transform duration-700" />
-            </Link>
-            <Link href="/dashboard/settings" className="group flex items-center gap-3 px-3 py-2.5 text-sm font-medium rounded-xl text-zinc-400 hover:text-white hover:bg-white/5 transition-all duration-300">
-              <Settings className="w-4 h-4 group-hover:text-indigo-400 transition-colors" />
+          <div>
+            <div className="text-xs font-bold text-foreground/40 uppercase tracking-widest mb-3 px-4 font-mono">
               Settings
-            </Link>
-          </nav>
+            </div>
+            <nav className="space-y-1">
+              <Link href="/dashboard/billing" className={getLinkClasses("/dashboard/billing")}>
+                <CreditCard className="w-4 h-4" />
+                Billing & Plans
+              </Link>
+              <Link href="/dashboard/settings" className={getLinkClasses("/dashboard/settings")}>
+                <Settings className="w-4 h-4" />
+                Settings
+              </Link>
+            </nav>
+          </div>
         </div>
       </aside>
 
       {/* Main Content Area */}
-      <main className="flex-1 flex flex-col min-w-0 overflow-hidden relative">
-        {/* Subtle background glow */}
-        <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-indigo-600/10 rounded-full blur-[120px] -z-10 pointer-events-none" />
-        <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-violet-600/10 rounded-full blur-[120px] -z-10 pointer-events-none" />
-        
+      <main className="flex-1 flex flex-col min-w-0 overflow-hidden relative bg-background">
         {/* Top Navigation */}
-        <header className="h-16 flex items-center justify-between px-8 border-b border-white/5 bg-black/20 backdrop-blur-xl shrink-0 sticky top-0 z-50">
-          <div className="flex items-center text-sm font-medium text-zinc-400">
-            <span className="bg-white/5 px-3 py-1 rounded-full ring-1 ring-white/10 flex items-center gap-2">
-              <Sparkles className="w-3 h-3 text-indigo-400" />
+        <header className="h-16 flex items-center justify-between px-8 border-b border-border bg-surface shrink-0 sticky top-0 z-50">
+          <div className="flex items-center text-sm font-medium text-foreground/70 font-mono">
+            <span className="bg-surface-hover px-3 py-1.5 border border-border flex items-center gap-2 uppercase tracking-widest text-xs font-bold">
+              <Sparkles className="w-3 h-3 text-primary-400" />
               Pro Workspace
             </span>
           </div>
           <div className="flex items-center gap-6">
-            <div className="ring-1 ring-white/10 rounded-xl bg-white/5 px-2 py-1 hover:bg-white/10 transition-colors">
+            <div className="border border-border bg-surface-hover px-2 py-1 hover:bg-surface transition-colors">
               <OrganizationSwitcher 
                 appearance={{
                   elements: {
-                    organizationSwitcherTrigger: "text-zinc-300 hover:text-white transition-colors focus:ring-0",
-                    organizationPreviewTextContainer: "text-zinc-200 font-medium",
-                    organizationSwitcherTriggerIcon: "text-zinc-400",
-                    avatarBox: "w-6 h-6 rounded-md",
+                    organizationSwitcherTrigger: "text-foreground hover:text-primary-400 transition-colors focus:ring-0",
+                    organizationPreviewTextContainer: "text-foreground font-mono font-bold",
+                    organizationSwitcherTriggerIcon: "text-foreground/50",
+                    avatarBox: "w-6 h-6",
                   }
                 }}
               />
             </div>
-            <div className="pl-6 border-l border-white/10 flex items-center">
+            <div className="pl-6 border-l border-border flex items-center">
               <UserButton 
-
                 appearance={{
                   elements: {
-                    userButtonAvatarBox: "w-8 h-8 rounded-full border border-white/20 shadow-sm hover:scale-105 transition-transform",
+                    userButtonAvatarBox: "w-8 h-8 border-2 border-border hover:border-primary-500 transition-colors rounded-none",
                   }
                 }}
               />
