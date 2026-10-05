@@ -1,72 +1,76 @@
 import Link from "next/link";
 import { ArrowRight, Database, Shield, Zap } from "lucide-react";
+import HeroScene from "@/components/HeroScene";
 
 export default function Home() {
   return (
-    <div className="min-h-screen bg-zinc-950 text-zinc-50 font-sans selection:bg-indigo-500/30">
-      <div className="absolute inset-0 bg-[url('/grid.svg')] bg-center [mask-image:linear-gradient(180deg,white,rgba(255,255,255,0))]"></div>
+    <div className="min-h-screen bg-background text-foreground font-sans relative overflow-hidden flex flex-col selection:bg-primary-500/30">
+      {/* 3D Background */}
+      <HeroScene />
       
       {/* Navigation */}
-      <nav className="relative z-10 flex items-center justify-between px-6 py-6 max-w-7xl mx-auto">
-        <div className="flex items-center gap-2">
-          <div className="w-8 h-8 rounded-lg bg-indigo-600 flex items-center justify-center">
+      <nav className="relative z-10 flex items-center justify-between px-8 py-6 w-full max-w-7xl mx-auto border-b border-border bg-surface/80 backdrop-blur-md">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 bg-primary-600 flex items-center justify-center border border-primary-500 shadow-glow">
             <Database className="w-5 h-5 text-white" />
           </div>
-          <span className="text-xl font-bold tracking-tight">Foundry-SaaS</span>
+          <span className="text-xl font-display font-bold uppercase tracking-widest text-white">Foundry-SaaS</span>
         </div>
-        <div className="flex items-center gap-4">
-          <Link href="/sign-in" className="text-sm font-medium text-zinc-400 hover:text-white transition-colors">
-            Sign In
+        <div className="flex items-center gap-6">
+          <Link href="/sign-in" className="text-sm font-mono font-bold uppercase tracking-widest text-foreground/70 hover:text-primary-400 transition-colors">
+            Auth
           </Link>
-          <Link href="/dashboard" className="text-sm font-medium bg-white text-black px-4 py-2 rounded-full hover:bg-zinc-200 transition-colors">
-            Dashboard
+          <Link href="/dashboard" className="text-sm font-mono font-bold uppercase tracking-widest bg-white text-black px-6 py-3 border border-white hover:bg-zinc-200 transition-colors">
+            Access System
           </Link>
         </div>
       </nav>
 
       {/* Hero Section */}
-      <main className="relative z-10 max-w-7xl mx-auto px-6 pt-32 pb-24 text-center">
-        <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 text-sm font-medium mb-8">
-          <span className="flex h-2 w-2 rounded-full bg-indigo-500"></span>
-          Now with Enterprise B2B Extraction
+      <main className="relative z-10 w-full max-w-7xl mx-auto px-8 pt-24 pb-24 flex-1 flex flex-col justify-center pointer-events-none">
+        <div className="inline-flex items-center gap-3 px-4 py-1.5 bg-primary-500/10 border border-primary-500/50 text-primary-400 text-xs font-mono font-bold uppercase tracking-widest mb-12 shadow-glow w-fit">
+          <span className="w-2 h-2 bg-primary-400 animate-pulse"></span>
+          Enterprise B2B Extraction Engine Active
         </div>
         
-        <h1 className="text-5xl md:text-7xl font-extrabold tracking-tight mb-8 bg-gradient-to-br from-white to-zinc-500 bg-clip-text text-transparent">
+        <h1 className="text-6xl md:text-8xl font-display font-extrabold tracking-tight mb-8 text-white uppercase leading-[0.9]">
           Extract High-Value <br />
-          Business Leads.
+          <span className="text-primary-400">Business Leads.</span>
         </h1>
         
-        <p className="max-w-2xl mx-auto text-lg md:text-xl text-zinc-400 mb-12">
+        <p className="max-w-2xl text-lg md:text-xl font-mono text-foreground/70 mb-12 pointer-events-auto">
           Automate your prospecting workflow. Foundry-SaaS extracts, enriches, and organizes B2B directory data with unparalleled accuracy and scale.
         </p>
 
-        <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
-          <Link href="/sign-up" className="flex items-center gap-2 px-8 py-4 bg-indigo-600 text-white rounded-full font-semibold text-lg hover:bg-indigo-700 transition-all shadow-[0_0_40px_-10px_rgba(79,70,229,0.5)]">
-            Start Free Trial <ArrowRight className="w-5 h-5" />
+        <div className="flex flex-col sm:flex-row items-center gap-6 pointer-events-auto w-fit">
+          <Link href="/sign-up" className="flex items-center gap-3 px-8 py-5 bg-primary-600 text-white font-mono font-bold uppercase tracking-widest text-sm border border-primary-400 shadow-glow hover:bg-primary-500 transition-all">
+            Initialize Sequence <ArrowRight className="w-5 h-5" />
           </Link>
-          <Link href="#features" className="flex items-center gap-2 px-8 py-4 bg-zinc-900 border border-zinc-800 text-white rounded-full font-semibold text-lg hover:bg-zinc-800 transition-all">
-            View Features
+          <Link href="#features" className="flex items-center gap-3 px-8 py-5 bg-surface text-foreground/70 font-mono font-bold uppercase tracking-widest text-sm border border-border hover:bg-surface-hover hover:text-white transition-all">
+            View Schematics
           </Link>
         </div>
       </main>
 
       {/* Features Grid */}
-      <section id="features" className="relative z-10 max-w-7xl mx-auto px-6 py-24 border-t border-zinc-800/50">
-        <div className="grid md:grid-cols-3 gap-8">
-          <div className="p-6 rounded-2xl bg-zinc-900/50 border border-zinc-800/50 backdrop-blur-sm">
-            <Zap className="w-10 h-10 text-indigo-400 mb-4" />
-            <h3 className="text-xl font-semibold mb-2">Lightning Fast</h3>
-            <p className="text-zinc-400">Asynchronous scraping engine powered by Playwright and FastAPI for maximum throughput.</p>
-          </div>
-          <div className="p-6 rounded-2xl bg-zinc-900/50 border border-zinc-800/50 backdrop-blur-sm">
-            <Shield className="w-10 h-10 text-emerald-400 mb-4" />
-            <h3 className="text-xl font-semibold mb-2">Ironclad Security</h3>
-            <p className="text-zinc-400">Strict tenant isolation using PostgreSQL Row-Level Security ensures your data never leaks.</p>
-          </div>
-          <div className="p-6 rounded-2xl bg-zinc-900/50 border border-zinc-800/50 backdrop-blur-sm">
-            <Database className="w-10 h-10 text-blue-400 mb-4" />
-            <h3 className="text-xl font-semibold mb-2">Structured Data</h3>
-            <p className="text-zinc-400">Automatically clean and structure messy directory HTML into ready-to-use CSV exports.</p>
+      <section id="features" className="relative z-10 w-full bg-surface border-t border-border">
+        <div className="max-w-7xl mx-auto px-8 py-24">
+          <div className="grid md:grid-cols-3 gap-8">
+            <div className="panel p-8 border-border hover:border-primary-500/50 transition-colors">
+              <Zap className="w-10 h-10 text-primary-400 mb-6" />
+              <h3 className="text-xl font-display font-bold uppercase tracking-wider text-white mb-3">Asynchronous Engine</h3>
+              <p className="text-foreground/70 font-mono text-sm leading-relaxed">Powered by Playwright and FastAPI for maximum throughput and unthrottled execution.</p>
+            </div>
+            <div className="panel p-8 border-border hover:border-primary-500/50 transition-colors">
+              <Shield className="w-10 h-10 text-primary-400 mb-6" />
+              <h3 className="text-xl font-display font-bold uppercase tracking-wider text-white mb-3">Absolute Isolation</h3>
+              <p className="text-foreground/70 font-mono text-sm leading-relaxed">Strict tenant isolation using PostgreSQL Row-Level Security ensures your data never leaks to unauthorized nodes.</p>
+            </div>
+            <div className="panel p-8 border-border hover:border-primary-500/50 transition-colors">
+              <Database className="w-10 h-10 text-primary-400 mb-6" />
+              <h3 className="text-xl font-display font-bold uppercase tracking-wider text-white mb-3">Structured Output</h3>
+              <p className="text-foreground/70 font-mono text-sm leading-relaxed">Automatically clean and structure messy directory HTML into ready-to-use CSV or JSON schema exports.</p>
+            </div>
           </div>
         </div>
       </section>

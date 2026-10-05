@@ -10,10 +10,10 @@ export default function HistoryPage() {
         <p className="text-zinc-400">View and download your past lead extractions.</p>
       </div>
 
-      <div className="bg-zinc-900/50 border border-zinc-800/50 rounded-2xl overflow-hidden backdrop-blur-sm p-8 text-center flex flex-col items-center justify-center min-h-[400px]">
-        <Clock className="w-12 h-12 text-zinc-600 mb-4" />
-        <h3 className="text-xl font-medium text-white mb-2">No history yet</h3>
-        <p className="text-zinc-400 max-w-md">
+      <div className="panel p-8 text-center flex flex-col items-center justify-center min-h-[400px]">
+        <Clock className="w-12 h-12 text-foreground/40 mb-4" />
+        <h3 className="text-xl font-display text-white mb-2">No history yet</h3>
+        <p className="text-foreground/50 max-w-md font-mono text-sm">
           Your extraction history will appear here once you start scraping directories.
         </p>
       </div>
