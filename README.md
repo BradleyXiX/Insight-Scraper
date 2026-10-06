@@ -128,6 +128,25 @@ This application uses a strict security model to ensure B2B data integrity:
 
 ---
 
+## 🚢 Deployment
+
+Foundry-SaaS is designed to be cloud-native and easily deployable using modern Platform as a Service (PaaS) providers.
+
+### Frontend Deployment (Vercel)
+The Next.js dashboard is optimized for seamless deployment on Vercel:
+1. Connect your GitHub repository to Vercel.
+2. Set the Framework Preset to Next.js and the Root Directory to `apps/dashboard`.
+3. Configure the required environment variables (`NEXT_PUBLIC_API_URL`, Clerk, and Stripe keys).
+4. Deploy to the Edge for global low-latency access.
+
+### Backend & Database Deployment
+The FastAPI backend and PostgreSQL database are fully containerized, making them portable across cloud providers:
+- **Database:** Deploy a managed PostgreSQL instance (e.g., Supabase, Neon, AWS RDS) and initialize the schema and RLS policies using `src/init_db.py`.
+- **API Container:** Deploy the FastAPI service using the provided `services/api/Dockerfile` to a container runtime like Render, AWS ECS/AppRunner, or Google Cloud Run. **Note:** Allocate sufficient RAM (1GB+) for the headless Chromium (Playwright) instances.
+- **Environment:** Securely inject the backend environment variables into your container environment.
+
+---
+
 ## 📄 License
 
 This project is proprietary and confidential. All rights reserved.
