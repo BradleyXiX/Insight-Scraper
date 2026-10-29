@@ -22,7 +22,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-def _run_scraper_subprocess(query: str) -> list:
+def _run_scraper_subprocess(query: str, source: str = "directory") -> list:
     """Runs the scraper worker in a separate process."""
     current_dir = os.path.dirname(os.path.abspath(__file__))
     worker_path = os.path.join(current_dir, 'scraper_worker.py')
@@ -32,6 +32,8 @@ def _run_scraper_subprocess(query: str) -> list:
             sys.executable,
             "-u",
             worker_path,
+            "--source",
+            source,
             query
         ], text=True)
         leads = json.loads(output)
@@ -43,23 +45,27 @@ def _run_scraper_subprocess(query: str) -> list:
 @app.post("/api/scrape")
 async def start_scrape(
     query: str, 
+    source: str = "directory",
     tenant_id: str = Depends(verify_clerk_token), 
     db: Session = Depends(get_db)
 ):
     """
     Endpoint to trigger a scraping job.
     Requires valid Clerk authentication and an active Stripe subscription.
+    Can be bypassed locally when DEV_BYPASS_AUTH=true.
     """
-    # 1. Check Stripe Status
-    sub_status = stripe_service.get_tenant_status(db, tenant_id)
-    if sub_status not in ["active", "trialing"]:
-        raise HTTPException(
-            status_code=402, 
-            detail=f"Payment required. Current subscription status: {sub_status}"
-        )
+    # 1. Check Stripe Status (bypassed if DEV_BYPASS_AUTH=true)
+    dev_bypass = os.getenv("DEV_BYPASS_AUTH", "false").lower() in ("true", "1", "yes")
+    if not dev_bypass:
+        sub_status = stripe_service.get_tenant_status(db, tenant_id)
+        if sub_status not in ["active", "trialing"]:
+            raise HTTPException(
+                status_code=402, 
+                detail=f"Payment required. Current subscription status: {sub_status}"
+            )
         
-    # 2. Enforce Concurrency Limit (Handled via AWS Reserved Concurrency configuration)
-    leads_data = await asyncio.to_thread(_run_scraper_subprocess, query)
+    # 2. Enforce Concurrency Limit & Run Worker
+    leads_data = await asyncio.to_thread(_run_scraper_subprocess, query, source)
         
     if not leads_data:
         return {"message": "No leads found or error occurred.", "leads": []}
@@ -67,16 +73,25 @@ async def start_scrape(
     # 3. Save Leads with tenant_id using RLS session
     with tenant_session(tenant_id) as session:
         # Save Search History
-        history = SearchHistory(tenant_id=tenant_id, query=query)
+        history = SearchHistory(tenant_id=tenant_id, query=f"[{source}] {query}")
         session.add(history)
         
         # Save Leads tagged with tenant_id
         saved_leads = []
         for lead in leads_data:
+            contact_val = lead.get("Contact") or lead.get("Phone") or "Hidden"
+            extras = []
+            if lead.get("Email/Socials") and lead.get("Email/Socials") != "N/A":
+                extras.append(lead.get("Email/Socials"))
+            if lead.get("PageSpeed Score") and lead.get("PageSpeed Score") != "N/A":
+                extras.append(f"Speed: {lead.get('Mobile Load Time', '')} ({lead.get('PageSpeed Score')})")
+            if extras:
+                contact_val = f"{contact_val} | " + " | ".join(extras)
+
             db_lead = Lead(
                 tenant_id=tenant_id,
                 business_name=lead.get("Business Name", "N/A"),
-                contact=lead.get("Contact", "Hidden"),
+                contact=contact_val,
                 website=lead.get("Website", ""),
                 search_query=query
             )
@@ -87,7 +102,8 @@ async def start_scrape(
         
         return {
             "message": f"Successfully scraped and saved {len(saved_leads)} leads.",
-            "total_leads": len(saved_leads)
+            "total_leads": len(saved_leads),
+            "leads": leads_data
         }
 
 @app.post("/api/webhooks/stripe")

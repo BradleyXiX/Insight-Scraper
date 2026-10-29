@@ -1,10 +1,11 @@
 import os
+import json
 from fastapi import Request, HTTPException, Depends
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 import jwt
 import requests
 
-security = HTTPBearer()
+security = HTTPBearer(auto_error=False)
 
 # Get Clerk PEM public key URL from environment or use a default pattern
 # Note: In production, CLERK_FRONTEND_API should be set in .env
@@ -18,7 +19,7 @@ def get_jwks():
     global _jwks_cache
     if not _jwks_cache:
         try:
-            response = requests.get(JWKS_URL)
+            response = requests.get(JWKS_URL, timeout=10)
             response.raise_for_status()
             _jwks_cache = response.json()
         except requests.RequestException as e:
@@ -27,51 +28,72 @@ def get_jwks():
             return None
     return _jwks_cache
 
-def verify_clerk_token(credentials: HTTPAuthorizationCredentials = Depends(security)):
+def verify_clerk_token(credentials: HTTPAuthorizationCredentials | None = Depends(security)) -> str:
+    """
+    Verifies Clerk RS256 JWT using JWKS keys.
+    Provides DEV_BYPASS_AUTH=true flag to allow local solo scraping runs without external auth roundtrips.
+    """
+    # 1. Clean DEV_BYPASS_AUTH check for solo local scraping runs
+    dev_bypass = os.getenv("DEV_BYPASS_AUTH", "false").lower() in ("true", "1", "yes")
+    if dev_bypass:
+        return os.getenv("DEV_TENANT_ID", "dev_tenant")
+
+    if not credentials or not credentials.credentials:
+        raise HTTPException(status_code=401, detail="Missing or invalid authorization header")
+
     token = credentials.credentials
     try:
-        # In a real production setup, we would verify the signature using the JWKS.
-        # For this setup/proposal, we will decode without verification if JWKS is unavailable,
-        # but the structure is in place for full verification.
-        
         jwks = get_jwks()
+        if not jwks or "keys" not in jwks:
+            raise HTTPException(status_code=500, detail="Could not retrieve JWKS for token verification")
+
+        # Fetch the unverified header to get the key ID (kid)
+        unverified_header = jwt.get_unverified_header(token)
+        kid = unverified_header.get("kid")
+        if not kid:
+            raise HTTPException(status_code=401, detail="Token header missing key ID (kid)")
+
+        rsa_key = None
+        for key in jwks["keys"]:
+            if key.get("kid") == kid:
+                rsa_key = {
+                    "kty": key["kty"],
+                    "kid": key["kid"],
+                    "use": key.get("use", "sig"),
+                    "n": key["n"],
+                    "e": key["e"]
+                }
+                break
+
+        if not rsa_key:
+            raise HTTPException(status_code=401, detail=f"No matching JWK key found for kid: {kid}")
+
+        # Full RS256 JWKS signature verification via RSAAlgorithm.from_jwk()
+        public_key = jwt.algorithms.RSAAlgorithm.from_jwk(rsa_key)
         
-        if jwks:
-            # Fetch the unverified header to get the key ID (kid)
-            unverified_header = jwt.get_unverified_header(token)
-            rsa_key = {}
-            for key in jwks["keys"]:
-                if key["kid"] == unverified_header["kid"]:
-                    rsa_key = {
-                        "kty": key["kty"],
-                        "kid": key["kid"],
-                        "use": key["use"],
-                        "n": key["n"],
-                        "e": key["e"]
-                    }
-            if rsa_key:
-                # In production with cryptography package:
-                # public_key = jwt.algorithms.RSAAlgorithm.from_jwk(json.dumps(rsa_key))
-                # payload = jwt.decode(token, public_key, algorithms=["RS256"], audience="...")
-                
-                # We'll use unverified decode for now unless cryptography is fully set up
-                pass
-        
-        # Decode the payload (signature verification bypassed for simplicity in this boilerplate, 
-        # but production should verify it as structured above)
-        payload = jwt.decode(token, options={"verify_signature": False})
-        
+        decode_options = {"verify_aud": False}
+        payload = jwt.decode(
+            token,
+            public_key,
+            algorithms=["RS256"],
+            options=decode_options
+        )
+
         # Extract Clerk Organization ID (tenant)
         org_id = payload.get("org_id")
-        
         if not org_id:
-            raise HTTPException(status_code=403, detail="User must belong to a Clerk Organization to access this resource.")
-            
+            raise HTTPException(
+                status_code=403, 
+                detail="User must belong to a Clerk Organization to access this resource."
+            )
+
         return org_id
-        
+
     except jwt.ExpiredSignatureError:
         raise HTTPException(status_code=401, detail="Token has expired")
     except jwt.InvalidTokenError as e:
         raise HTTPException(status_code=401, detail=f"Invalid token: {str(e)}")
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=401, detail=f"Authentication error: {str(e)}")
