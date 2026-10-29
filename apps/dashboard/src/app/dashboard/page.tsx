@@ -10,6 +10,37 @@ export default function DashboardPage() {
   const [isScraping, setIsScraping] = useState(false);
   
   const [leads, setLeads] = useState<any[]>([]);
+  const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+
+  const handleExportCSV = () => {
+    if (!leads || leads.length === 0) {
+      alert("No leads available to export.");
+      return;
+    }
+
+    const headers = ["Business Name", "Contact Details", "Website", "Search Query"];
+    const rows = leads.map((lead) => {
+      const name = lead.business_name || lead.name || lead["Business Name"] || "";
+      const contact = lead.contact || lead["Contact"] || "";
+      const website = lead.website || lead["Website"] || "";
+      const searchQuery = lead.query || lead.search_query || lead["Search Query"] || "";
+
+      return [name, contact, website, searchQuery]
+        .map((field) => `"${String(field ?? "").replace(/"/g, '""')}"`)
+        .join(",");
+    });
+
+    const csvContent = [headers.join(","), ...rows].join("\r\n");
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.setAttribute("download", `leads_export_${new Date().toISOString().slice(0, 10)}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
 
   const handleScrape = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -21,7 +52,7 @@ export default function DashboardPage() {
       const token = await getToken();
       
       console.log("Scraping for:", query, "Organization:", orgId);
-      const res = await fetch("http://localhost:8000/api/scrape?query=" + encodeURIComponent(query), {
+      const res = await fetch(`${apiUrl}/api/scrape?query=` + encodeURIComponent(query), {
         method: "POST",
         headers: { Authorization: `Bearer ${token}` }
       });
@@ -35,7 +66,7 @@ export default function DashboardPage() {
       console.log(data);
       
       // Fetch the updated list of leads from the database
-      const leadsRes = await fetch("http://localhost:8000/api/leads", {
+      const leadsRes = await fetch(`${apiUrl}/api/leads`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       
@@ -101,7 +132,10 @@ export default function DashboardPage() {
       <div className="space-y-4">
         <div className="flex items-center justify-between">
           <h2 className="text-xl font-display text-white">Recent Leads</h2>
-          <button className="flex items-center gap-2 text-sm font-medium text-foreground/60 hover:text-white transition-colors">
+          <button 
+            onClick={handleExportCSV}
+            className="flex items-center gap-2 text-sm font-medium text-foreground/60 hover:text-white transition-colors"
+          >
             <Download className="w-4 h-4" />
             Export CSV
           </button>
