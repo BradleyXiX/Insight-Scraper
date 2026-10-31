@@ -1,27 +1,140 @@
 """
-Isolated web scraper worker for Insight Scraper.
-
-Utilizes Playwright and BeautifulSoup to asynchronously navigate directories
-or audit website URLs. This script is intended to be executed as a 
-subprocess to prevent asyncio event loop conflicts in the main application.
+Isolated web scraper worker for Insight Scraper - International Multi-Source Edition.
 
 Supports:
-  --source directory : Scrapes business directories (e.g. Yellow Pages).
-  --source url_list  : Audits a list of URLs, extracting business name, phone,
-                       email/socials, website URL, and mobile load time / PageSpeed score
-                       to pitch slow sites on Venture #2 Landing Page Sprints and
-                       Venture #4 RAG Bots.
+  Regions : US, GB, AU, CA, AE, KE
+  Sources : gmaps, duckduckgo-places, yellowpages-intl (directory), url_list (audit)
+  Deep Signals : Mobile_Load_Ms (Navigation Timing), Has_Chatbot_Widget (Intercom, Drift, Tidio, Botpress, etc.),
+                 Email/Social Links, Business Name, Phone, Website.
+  Pitch Hooks  : If Mobile_Load_Ms > 3000 -> "Pitch $750 Speed Overhaul (#2)"
+                 If Has_Chatbot_Widget == False -> "Pitch $1,000 RAG Bot (#4)"
+
+Intended to run as a subprocess to prevent asyncio event loop conflicts with FastAPI.
+Outputs JSON array directly to stdout.
 """
 import argparse
 import asyncio
 import json
+import os
 import random
 import re
+import shutil
 import sys
 import time
 import urllib.parse
 from bs4 import BeautifulSoup
 from playwright.async_api import async_playwright
+
+# User-Agent rotation pool
+USER_AGENTS = [
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36 Edg/123.0.0.0",
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_4_1) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4.1 Safari/605.1.15"
+]
+
+MOBILE_USER_AGENTS = [
+    "Mozilla/5.0 (iPhone; CPU iPhone OS 17_4_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4.1 Mobile/15E148 Safari/604.1",
+    "Mozilla/5.0 (Linux; Android 14; SM-S928B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.6367.82 Mobile Safari/537.36"
+]
+
+VIEWPORTS = [
+    {"width": 1920, "height": 1080},
+    {"width": 1536, "height": 864},
+    {"width": 1440, "height": 900},
+    {"width": 1366, "height": 768}
+]
+
+REGION_METADATA = {
+    "US": {"locale": "en-US", "timezone": "America/New_York", "country": "United States", "default_geo": "New York, NY"},
+    "GB": {"locale": "en-GB", "timezone": "Europe/London", "country": "United Kingdom", "default_geo": "London"},
+    "AU": {"locale": "en-AU", "timezone": "Australia/Sydney", "country": "Australia", "default_geo": "Sydney NSW"},
+    "CA": {"locale": "en-CA", "timezone": "America/Toronto", "country": "Canada", "default_geo": "Toronto, ON"},
+    "AE": {"locale": "en-AE", "timezone": "Asia/Dubai", "country": "United Arab Emirates", "default_geo": "Dubai"},
+    "KE": {"locale": "en-KE", "timezone": "Africa/Nairobi", "country": "Kenya", "default_geo": "Nairobi"}
+}
+
+STEALTH_INIT_SCRIPT = """
+(() => {
+    // Override navigator.webdriver
+    Object.defineProperty(navigator, 'webdriver', {
+        get: () => undefined
+    });
+    // Chrome runtime emulation
+    window.chrome = {
+        runtime: {},
+        loadTimes: function() {},
+        csi: function() {},
+        app: {}
+    };
+    // Mock navigator plugins
+    Object.defineProperty(navigator, 'plugins', {
+        get: () => [
+            { name: 'Chrome PDF Plugin', filename: 'internal-pdf-viewer' },
+            { name: 'Chrome PDF Viewer', filename: 'mhjfbmdgcfjbbpaeojofohoefgiehjai' },
+            { name: 'Native Client', filename: 'internal-nacl-plugin' }
+        ]
+    });
+    // Languages
+    Object.defineProperty(navigator, 'languages', {
+        get: () => ['en-US', 'en']
+    });
+})();
+"""
+
+CHATBOT_DETECTION_SCRIPT = """
+(() => {
+    try {
+        // 1. Global JS Objects
+        const knownGlobals = [
+            'Intercom', 'drift', 'tidioChatApi', 'botpressWebChat', 
+            '$crisp', 'zE', '$zopim', 'HubSpotConversations', 
+            'LiveChatWidget', '$chatwoot', 'freshchat', 'Tawk_API',
+            'vwo_$', 'qualified', 'Kustomer', 'Ada', 'GorgiasChat'
+        ];
+        for (const g of knownGlobals) {
+            if (window[g] !== undefined) return true;
+        }
+
+        // 2. DOM selectors for chatbot widget containers, iframes or root tags
+        const selectors = [
+            '#intercom-container', 'iframe[name*="intercom"]', 'div[class*="intercom-"]',
+            '#drift-widget', 'iframe[title*="Drift"]', 'div[class*="drift-"]',
+            '#tidio-chat', 'iframe[id*="tidio"]', '#tidio-chat-iframe',
+            '#bp-web-widget', 'div[class*="bpw-widget"]', '#botpress-webchat',
+            '#crisp-chatbox', 'div.crisp-client',
+            '#launcher', '#ze-snippet', 'iframe[title*="Zendesk"]',
+            '#hubspot-messages-iframe-container', 'div[data-hubspot-rendered="true"]',
+            '#chat-widget-container', 'iframe#chat-widget',
+            'div[class*="woot-widget"]',
+            '#tawk-bubble-container', 'iframe[src*="tawk.to"]',
+            '[aria-label*="chat" i]',
+            '[id*="chat-widget" i]',
+            '[class*="chat-widget" i]',
+            'button[aria-haspopup="dialog"][aria-label*="chat" i]'
+        ];
+        for (const s of selectors) {
+            if (document.querySelector(s)) return true;
+        }
+
+        // 3. Script sources
+        const scripts = Array.from(document.querySelectorAll('script[src]')).map(s => (s.src || '').toLowerCase());
+        const patterns = [
+            'widget.intercom.io', 'js.driftt.com', 'code.tidio.co',
+            'botpress', 'client.crisp.chat', 'static.zdassets.com',
+            'js.hs-scripts.com', 'livechatinc.com', 'embed.tawk.to',
+            'chatwoot', 'kustomerapp.com', 'gorgias.chat'
+        ];
+        for (const s of scripts) {
+            for (const p of patterns) {
+                if (s.includes(p)) return true;
+            }
+        }
+    } catch (e) {}
+    return false;
+})();
+"""
 
 def _clean_business_name(raw_name: str, domain: str = "") -> str:
     """Cleans up raw title or site name into a concise business name."""
@@ -31,25 +144,25 @@ def _clean_business_name(raw_name: str, domain: str = "") -> str:
             return cleaned_domain.capitalize()
         return "Unknown Business"
     
-    # Strip common site titles like "Home - My Company | Tagline"
     parts = re.split(r'[\-\|\–\—\:]', raw_name)
     best_part = parts[0].strip()
     if len(best_part) < 3 and len(parts) > 1:
         best_part = parts[1].strip()
-    return best_part[:60] if best_part else "Unknown Business"
+    return best_part[:70] if best_part else "Unknown Business"
 
 def _extract_phone_from_soup(soup: BeautifulSoup, text: str) -> str:
-    """Extracts phone number from tel: links or text."""
+    """Extracts phone number from tel: links or regex patterns."""
     tel_link = soup.select_one('a[href^="tel:"]')
     if tel_link and tel_link.get('href'):
         raw_phone = tel_link['href'].replace('tel:', '').strip()
         return urllib.parse.unquote(raw_phone)
     
-    # Regex fallback for standard phone patterns
-    phone_pattern = r'(?:\+?\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}'
+    phone_pattern = r'(?:\+?\d{1,3}[-.\s]?)?\(?\d{2,4}\)?[-.\s]?\d{3}[-.\s]?\d{3,4}'
     match = re.search(phone_pattern, text)
     if match:
-        return match.group(0).strip()
+        found = match.group(0).strip()
+        if len(re.sub(r'\D', '', found)) >= 7:
+            return found
     return "Hidden"
 
 def _extract_emails_and_socials(soup: BeautifulSoup, text: str) -> tuple[str, list[str]]:
@@ -66,8 +179,7 @@ def _extract_emails_and_socials(soup: BeautifulSoup, text: str) -> tuple[str, li
     email_pattern = r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,7}\b'
     for match in re.findall(email_pattern, text):
         clean_email = match.lower()
-        # Filter out common asset/mock false positives
-        if not re.search(r'\.(png|jpg|jpeg|gif|webp|svg|css|js)$', clean_email) and 'example.com' not in clean_email:
+        if not re.search(r'\.(png|jpg|jpeg|gif|webp|svg|css|js|woff|woff2)$', clean_email) and 'example.com' not in clean_email and 'sentry.io' not in clean_email:
             emails.add(clean_email)
             
     # 3. Socials
@@ -80,18 +192,14 @@ def _extract_emails_and_socials(soup: BeautifulSoup, text: str) -> tuple[str, li
         href = a['href'].strip()
         for domain in social_domains:
             if domain in href:
-                # Filter out share/intent URLs
-                if not any(skip in href for skip in ['sharer', 'share', 'intent/tweet', 'shareArticle']):
+                if not any(skip in href for skip in ['sharer', 'share', 'intent/tweet', 'shareArticle', 'policy', 'terms']):
                     socials.add(href)
                     
     primary_email = sorted(list(emails))[0] if emails else ""
     return primary_email, sorted(list(socials))
 
 def _calculate_pagespeed_score(load_time_seconds: float) -> int:
-    """
-    Approximates mobile Google PageSpeed / Lighthouse performance score (0-100)
-    based on mobile load time curve.
-    """
+    """Approximates Google PageSpeed / Lighthouse performance score (0-100)."""
     if load_time_seconds <= 1.2:
         return max(90, int(100 - (load_time_seconds / 1.2) * 10))
     elif load_time_seconds <= 3.0:
@@ -101,232 +209,608 @@ def _calculate_pagespeed_score(load_time_seconds: float) -> int:
     else:
         return max(15, int(45 - min(30, (load_time_seconds - 5.5) * 5)))
 
-async def _scrape_directory_async(search_query: str) -> list[dict[str, str]]:
+def _get_pitch_hook(mobile_load_ms: int, has_chatbot: bool) -> str:
+    """Generates the sales pitch hook based on mobile speed and chatbot signals."""
+    if mobile_load_ms > 3000:
+        return "Pitch $750 Speed Overhaul (#2)"
+    elif not has_chatbot:
+        return "Pitch $1,000 RAG Bot (#4)"
+    else:
+        return "Pitch Enterprise AI Automation"
+
+async def _audit_website_signal(browser, target_url: str) -> dict:
     """
-    Scrapes business directory listings (YellowPages Kenya).
+    Audits a website URL on a mobile viewport:
+    - Measures Mobile_Load_Ms using Navigation Timing API
+    - Detects Has_Chatbot_Widget (Intercom, Drift, Tidio, Botpress, etc.)
+    - Extracts phone, email, and social links
     """
-    leads = []
-    async with async_playwright() as p:
-        browser = await p.chromium.launch(headless=True)
-        context = await browser.new_context(
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-        )
-        page = await context.new_page()
-        encoded_query = urllib.parse.quote(search_query)
-        target_url = "https://yellowpageskenya.com/search-results/" + encoded_query
-        
+    if not target_url.startswith("http://") and not target_url.startswith("https://"):
+        target_url = "https://" + target_url
+
+    mobile_ua = random.choice(MOBILE_USER_AGENTS)
+    context = await browser.new_context(
+        viewport={"width": 390, "height": 844},
+        user_agent=mobile_ua,
+        is_mobile=True,
+        has_touch=True
+    )
+    await context.add_init_script(STEALTH_INIT_SCRIPT)
+
+    mobile_load_ms = 0
+    has_chatbot = False
+    phone = "Hidden"
+    email = ""
+    socials = []
+    business_name = ""
+
+    page = await context.new_page()
+    start_time = time.perf_counter()
+    html = ""
+    
+    try:
+        response = await page.goto(target_url, wait_until="domcontentloaded", timeout=16000)
         try:
-            await page.goto(target_url, timeout=30000)
-            await asyncio.sleep(random.uniform(2.5, 4.5))
+            await page.wait_for_load_state("load", timeout=4000)
+        except Exception:
+            pass
+
+        end_time = time.perf_counter()
+        wall_clock_ms = int((end_time - start_time) * 1000)
+
+        # 1. Navigation Timing API
+        perf_ms = await page.evaluate("""() => {
+            try {
+                const nav = performance.getEntriesByType('navigation')[0];
+                if (nav && nav.loadEventEnd > 0) {
+                    return Math.round(nav.loadEventEnd - nav.startTime);
+                }
+                if (nav && nav.responseEnd > 0) {
+                    return Math.round(nav.responseEnd - nav.startTime);
+                }
+            } catch (e) {}
+            try {
+                if (window.performance && window.performance.timing) {
+                    const t = window.performance.timing;
+                    if (t.loadEventEnd > 0 && t.navigationStart > 0) {
+                        return t.loadEventEnd - t.navigationStart;
+                    }
+                }
+            } catch (e) {}
+            return null;
+        }""")
+
+        mobile_load_ms = int(perf_ms) if perf_ms and perf_ms > 0 else wall_clock_ms
+
+        # 2. Chatbot Widget Detection
+        has_chatbot = bool(await page.evaluate(CHATBOT_DETECTION_SCRIPT))
+
+        html = await page.content()
+    except Exception as e:
+        end_time = time.perf_counter()
+        mobile_load_ms = max(3500, int((end_time - start_time) * 1000))
+        try:
             html = await page.content()
-            soup = BeautifulSoup(html, 'html.parser')
-            
-            cards = []
-            for h2 in soup.find_all('h2'):
-                card = h2.find_parent('div', class_='bg-white')
-                if card and card not in cards and card.select_one('a[href^="tel:"]'):
-                    cards.append(card)
+        except Exception:
+            html = ""
+    finally:
+        await page.close()
+        await context.close()
 
-            for business in cards[:10]:
-                # 1. Business Name
-                name_el = business.select_one('h2')
-                name = name_el.text.strip() if name_el else "N/A"
-                
-                # 2. Phone
-                phone_el = business.select_one('a[href^="tel:"]')
-                if phone_el and phone_el.has_attr('href'):
-                    phone = phone_el['href'].replace('tel:', '').strip()
-                else:
-                    phone = "Hidden"
-                    
-                # 3. Website
-                website = ""
-                for a_tag in business.select('a[href]'):
-                    href = a_tag['href']
-                    if href.startswith('http') and 'yellowpageskenya' not in href:
-                        website = href
-                        break
+    if html:
+        soup = BeautifulSoup(html, 'html.parser')
+        text = soup.get_text(separator=" ")
+        phone = _extract_phone_from_soup(soup, text)
+        email, socials = _extract_emails_and_socials(soup, text)
 
-                # 4. Email/Socials from card if available
-                card_text = business.get_text(separator=" ")
-                email, socials = _extract_emails_and_socials(business, card_text)
-                email_socials_parts = []
-                if email:
-                    email_socials_parts.append(f"Email: {email}")
-                if socials:
-                    email_socials_parts.append(f"Socials: {', '.join(socials[:2])}")
-                email_socials_str = " | ".join(email_socials_parts) if email_socials_parts else "N/A"
+        # If email not on homepage, look for a /contact or /about link
+        if not email:
+            contact_link = None
+            for a in soup.select('a[href]'):
+                href = a['href'].lower()
+                if any(k in href for k in ['contact', 'reach-us', 'about-us', 'get-in-touch']):
+                    contact_link = urllib.parse.urljoin(target_url, a['href'])
+                    break
+            if contact_link and contact_link != target_url:
+                try:
+                    c_page = await browser.new_page()
+                    await c_page.goto(contact_link, wait_until="domcontentloaded", timeout=8000)
+                    c_html = await c_page.content()
+                    await c_page.close()
+                    c_soup = BeautifulSoup(c_html, 'html.parser')
+                    c_text = c_soup.get_text(separator=" ")
+                    c_email, c_socials = _extract_emails_and_socials(c_soup, c_text)
+                    if c_email:
+                        email = c_email
+                    if c_socials:
+                        socials = sorted(list(set(socials + c_socials)))
+                    if phone == "Hidden":
+                        c_phone = _extract_phone_from_soup(c_soup, c_text)
+                        if c_phone != "Hidden":
+                            phone = c_phone
+                except Exception:
+                    pass
 
-                leads.append({
-                    "Business Name": name, 
-                    "Contact": phone,
-                    "Phone": phone,
-                    "Email": email or "N/A",
-                    "Socials": ", ".join(socials) if socials else "N/A",
-                    "Email/Socials": email_socials_str,
-                    "Website": website,
-                    "Mobile Load Time": "N/A",
-                    "PageSpeed Score": "N/A",
-                    "Pitch": "Venture #4 RAG Bots"
-                })
-        except Exception as e:
-            print(f"Directory scraping error: {e}", file=sys.stderr)
-        finally:
-            await browser.close()
-            
+        raw_title = ""
+        og_site = soup.select_one('meta[property="og:site_name"]')
+        if og_site and og_site.get('content'):
+            raw_title = og_site['content'].strip()
+        elif soup.title and soup.title.string:
+            raw_title = soup.title.string.strip()
+        business_name = _clean_business_name(raw_title, domain=target_url)
+    else:
+        business_name = _clean_business_name("", domain=target_url)
+
+    return {
+        "business_name": business_name,
+        "phone": phone,
+        "email": email,
+        "socials": socials,
+        "mobile_load_ms": mobile_load_ms,
+        "has_chatbot": has_chatbot
+    }
+
+async def _scrape_kenya_directory(page, search_query: str, limit: int) -> list[dict]:
+    """Scrapes yellowpageskenya.com for the KE region."""
+    leads = []
+    encoded_query = urllib.parse.quote(search_query)
+    target_url = f"https://yellowpageskenya.com/search-results/{encoded_query}"
+
+    try:
+        await page.goto(target_url, timeout=30000)
+        await asyncio.sleep(random.uniform(2.0, 3.5))
+        html = await page.content()
+        soup = BeautifulSoup(html, 'html.parser')
+
+        cards = []
+        for h2 in soup.find_all('h2'):
+            card = h2.find_parent('div', class_='bg-white')
+            if card and card not in cards and card.select_one('a[href^="tel:"]'):
+                cards.append(card)
+
+        for business in cards[:limit]:
+            name_el = business.select_one('h2')
+            name = name_el.text.strip() if name_el else "Unknown Business"
+
+            phone_el = business.select_one('a[href^="tel:"]')
+            phone = phone_el['href'].replace('tel:', '').strip() if (phone_el and phone_el.has_attr('href')) else "Hidden"
+
+            website = ""
+            for a_tag in business.select('a[href]'):
+                href = a_tag['href']
+                if href.startswith('http') and 'yellowpageskenya' not in href:
+                    website = href
+                    break
+
+            card_text = business.get_text(separator=" ")
+            email, socials = _extract_emails_and_socials(business, card_text)
+
+            leads.append({
+                "Business Name": name,
+                "Phone": phone,
+                "Website": website,
+                "Email": email,
+                "Socials": socials,
+                "Region": "KE"
+            })
+    except Exception as e:
+        print(f"Kenya directory scraping error: {e}", file=sys.stderr)
+
     return leads
 
-async def _audit_urls_async(urls_input: str) -> list[dict[str, str]]:
+async def _scrape_google_maps(page, query: str, region: str, limit: int) -> list[dict]:
+    """Scrapes Google Maps Places for international queries."""
+    leads = []
+    meta = REGION_METADATA.get(region, REGION_METADATA["US"])
+    
+    # Enrich query with country if not present
+    search_term = query
+    if meta["country"].lower() not in query.lower() and region != "US":
+        search_term = f"{query} {meta['country']}"
+
+    encoded_query = urllib.parse.quote(search_term)
+    url = f"https://www.google.com/maps/search/{encoded_query}?hl=en"
+
+    try:
+        await page.goto(url, timeout=30000, wait_until="domcontentloaded")
+        await asyncio.sleep(random.uniform(2.5, 4.0))
+
+        # Handle cookie consent dialogues if present
+        for consent_btn_selector in [
+            'button:has-text("Accept all")',
+            'button:has-text("I agree")',
+            'button:has-text("Reject all")',
+            'form[action*="consent"] button',
+            'button[aria-label*="Accept" i]'
+        ]:
+            try:
+                btn = page.locator(consent_btn_selector).first
+                if await btn.is_visible(timeout=1500):
+                    await btn.click()
+                    await asyncio.sleep(1.5)
+                    break
+            except Exception:
+                pass
+
+        # Locate the scrollable feed of places
+        feed_selector = 'div[role="feed"]'
+        try:
+            await page.wait_for_selector(feed_selector, timeout=8000)
+        except Exception:
+            pass
+
+        # Scroll to load up to limit items
+        scroll_attempts = 0
+        while len(leads) < limit and scroll_attempts < 6:
+            scroll_attempts += 1
+            await page.evaluate("""() => {
+                const feed = document.querySelector('div[role="feed"]') || window;
+                feed.scrollBy(0, 1000);
+            }""")
+            await asyncio.sleep(1.2)
+
+        html = await page.content()
+        soup = BeautifulSoup(html, 'html.parser')
+
+        # Google Maps listings container
+        cards = soup.select('div[role="feed"] > div > div[role="article"]')
+        if not cards:
+            cards = soup.select('div[role="article"]')
+
+        for card in cards:
+            if len(leads) >= limit:
+                break
+
+            name_el = card.select_one('div.fontHeadlineSmall') or card.select_one('div[class*="qBF1Pd"]')
+            name = name_el.text.strip() if name_el else (card.get('aria-label') or "Unknown Business")
+            if not name or name == "Unknown Business":
+                continue
+
+            website = ""
+            website_el = card.select_one('a[data-value="Website"]') or card.select_one('a[aria-label*="website" i]') or card.select_one('a[data-item-id="authority"]')
+            if website_el and website_el.get('href'):
+                website = website_el['href']
+
+            # Extract phone from card text or data attributes
+            card_text = card.get_text(separator=" ")
+            phone = _extract_phone_from_soup(card, card_text)
+
+            leads.append({
+                "Business Name": name,
+                "Phone": phone,
+                "Website": website,
+                "Email": "",
+                "Socials": [],
+                "Region": region
+            })
+    except Exception as e:
+        print(f"Google Maps scraping error: {e}", file=sys.stderr)
+
+    return leads
+
+async def _scrape_duckduckgo_places(page, query: str, region: str, limit: int) -> list[dict]:
+    """Scrapes DuckDuckGo Local / Places for business contacts and websites."""
+    leads = []
+    meta = REGION_METADATA.get(region, REGION_METADATA["US"])
+    search_term = f"{query} {meta['country']}" if meta['country'].lower() not in query.lower() else query
+    encoded_query = urllib.parse.quote(search_term)
+    url = f"https://duckduckgo.com/?q={encoded_query}&ia=places"
+
+    try:
+        await page.goto(url, timeout=25000, wait_until="domcontentloaded")
+        await asyncio.sleep(random.uniform(2.0, 3.5))
+        html = await page.content()
+        soup = BeautifulSoup(html, 'html.parser')
+
+        # DuckDuckGo local / places modules
+        place_items = soup.select('.module--places .place-list__item, [data-testid="place-item"], .result--places')
+        for item in place_items[:limit]:
+            name_el = item.select_one('.place-list__item__title, [data-testid="place-title"], h2')
+            name = name_el.text.strip() if name_el else "Unknown Business"
+
+            website = ""
+            web_el = item.select_one('a[href^="http"]:not([href*="duckduckgo"])')
+            if web_el and web_el.get('href'):
+                website = web_el['href']
+
+            item_text = item.get_text(separator=" ")
+            phone = _extract_phone_from_soup(item, item_text)
+
+            leads.append({
+                "Business Name": name,
+                "Phone": phone,
+                "Website": website,
+                "Email": "",
+                "Socials": [],
+                "Region": region
+            })
+
+        # Fallback to standard web results if places module returned empty
+        if not leads:
+            web_results = soup.select('article.result, .result__body')
+            for res in web_results[:limit]:
+                title_el = res.select_one('h2, .result__title')
+                name = title_el.text.strip() if title_el else "Business"
+                link_el = res.select_one('a[href^="http"]')
+                website = link_el['href'] if link_el else ""
+                if website and 'duckduckgo.com' not in website:
+                    leads.append({
+                        "Business Name": _clean_business_name(name, domain=website),
+                        "Phone": "Hidden",
+                        "Website": website,
+                        "Email": "",
+                        "Socials": [],
+                        "Region": region
+                    })
+    except Exception as e:
+        print(f"DuckDuckGo Places error: {e}", file=sys.stderr)
+
+    return leads
+
+async def _scrape_yellowpages_intl(page, query: str, region: str, limit: int) -> list[dict]:
+    """Scrapes country-specific business directories (YellowPages US, Yell UK, etc.)."""
+    if region == "KE":
+        return await _scrape_kenya_directory(page, query, limit)
+
+    leads = []
+    encoded_query = urllib.parse.quote(query)
+
+    try:
+        if region == "US":
+            url = f"https://www.yellowpages.com/search?search_terms={encoded_query}"
+            await page.goto(url, timeout=25000, wait_until="domcontentloaded")
+            await asyncio.sleep(2.0)
+            soup = BeautifulSoup(await page.content(), 'html.parser')
+            for card in soup.select('.result, .srp-listing')[:limit]:
+                name_el = card.select_one('a.business-name')
+                name = name_el.text.strip() if name_el else "Unknown"
+                phone_el = card.select_one('.phones.phone.primary, [itemprop="telephone"]')
+                phone = phone_el.text.strip() if phone_el else "Hidden"
+                web_el = card.select_one('a.track-visit-website, a[href^="http"]:not([href*="yellowpages.com"])')
+                website = web_el['href'] if web_el else ""
+                leads.append({"Business Name": name, "Phone": phone, "Website": website, "Email": "", "Socials": [], "Region": region})
+
+        elif region == "GB":
+            url = f"https://www.yell.com/ucs/UcsSearchAction.do?keywords={encoded_query}"
+            await page.goto(url, timeout=25000, wait_until="domcontentloaded")
+            await asyncio.sleep(2.0)
+            soup = BeautifulSoup(await page.content(), 'html.parser')
+            for card in soup.select('.businessCapsule, div[itemtype*="LocalBusiness"]')[:limit]:
+                name_el = card.select_one('.businessCapsule--title, h2')
+                name = name_el.text.strip() if name_el else "Unknown"
+                phone_el = card.select_one('a[href^="tel:"], .business--telephone')
+                phone = phone_el.text.strip() if phone_el else "Hidden"
+                web_el = card.select_one('a[data-tracking*="website"], a[href^="http"]:not([href*="yell.com"])')
+                website = web_el['href'] if web_el else ""
+                leads.append({"Business Name": name, "Phone": phone, "Website": website, "Email": "", "Socials": [], "Region": region})
+
+        elif region in ["CA", "AU", "AE"]:
+            # DuckDuckGo Places as verified fallback for CA, AU, AE international directories
+            leads = await _scrape_duckduckgo_places(page, query, region, limit)
+
+    except Exception as e:
+        print(f"International YellowPages error for {region}: {e}", file=sys.stderr)
+
+    return leads
+
+async def run_scraper(query: str, region: str = "US", source: str = "gmaps", limit: int = 25) -> list[dict]:
     """
-    Audits a list of URLs on mobile viewport, extracting:
-    - Business name
-    - Phone number
-    - Email and social media channels
-    - Website URL
-    - Mobile load time and PageSpeed score
-    - Pitch recommendation for Venture #2 (Landing Page Sprints) & Venture #4 (RAG Bots)
+    Main orchestration function for scraping B2B leads across regions and sources,
+    followed by website deep signal analysis (Mobile Load ms, Chatbot Widget detection, email/socials).
     """
+    region = region.upper()
+    if region not in REGION_METADATA:
+        region = "US"
+    meta = REGION_METADATA[region]
+
+    user_agent = random.choice(USER_AGENTS)
+    viewport = random.choice(VIEWPORTS)
+
+    raw_candidates = []
+
+    # Check for camoufox / camoufox-cli fallback availability
+    camoufox_available = bool(shutil.which("camoufox-cli"))
+    if not camoufox_available:
+        try:
+            import camoufox
+            camoufox_available = True
+        except ImportError:
+            camoufox_available = False
+
+    async with async_playwright() as p:
+        browser_launch_args = [
+            "--disable-blink-features=AutomationControlled",
+            "--disable-infobars",
+            "--no-sandbox",
+            "--disable-setuid-sandbox",
+            "--disable-dev-shm-usage",
+            "--disable-web-security"
+        ]
+
+        browser = await p.chromium.launch(
+            headless=True,
+            args=browser_launch_args
+        )
+
+        context = await browser.new_context(
+            user_agent=user_agent,
+            viewport=viewport,
+            locale=meta["locale"],
+            timezone_id=meta["timezone"]
+        )
+        await context.add_init_script(STEALTH_INIT_SCRIPT)
+        page = await context.new_page()
+
+        # Route by source
+        norm_source = source.lower()
+
+        if region == "KE" or norm_source in ["yellowpageskenya", "ke"]:
+            raw_candidates = await _scrape_kenya_directory(page, query, limit)
+        elif norm_source in ["yellowpages-intl", "directory"]:
+            raw_candidates = await _scrape_yellowpages_intl(page, query, region, limit)
+        elif norm_source in ["duckduckgo-places", "ddg"]:
+            raw_candidates = await _scrape_duckduckgo_places(page, query, region, limit)
+        else: # Default: gmaps
+            raw_candidates = await _scrape_google_maps(page, query, region, limit)
+
+        # Multi-source cascade fallback: if primary source returned 0 or few, augment via DuckDuckGo
+        if len(raw_candidates) < min(5, limit) and region != "KE":
+            augmented = await _scrape_duckduckgo_places(page, query, region, limit - len(raw_candidates))
+            for cand in augmented:
+                if not any(c.get("Business Name") == cand.get("Business Name") for c in raw_candidates):
+                    raw_candidates.append(cand)
+
+        # Deep Signal Inspection on Prospect Websites
+        final_leads = []
+        for cand in raw_candidates[:limit]:
+            website = cand.get("Website", "").strip()
+            phone = cand.get("Phone", "Hidden")
+            email = cand.get("Email", "")
+            socials = cand.get("Socials", [])
+            has_chatbot = False
+            mobile_load_ms = 0
+
+            if website:
+                try:
+                    audit_res = await _audit_website_signal(browser, website)
+                    if not cand.get("Business Name") or cand.get("Business Name") == "Unknown Business":
+                        cand["Business Name"] = audit_res.get("business_name") or cand["Business Name"]
+                    if phone == "Hidden" and audit_res.get("phone") != "Hidden":
+                        phone = audit_res["phone"]
+                    if not email and audit_res.get("email"):
+                        email = audit_res["email"]
+                    if not socials and audit_res.get("socials"):
+                        socials = audit_res["socials"]
+                    has_chatbot = audit_res.get("has_chatbot", False)
+                    mobile_load_ms = audit_res.get("mobile_load_ms", 0)
+                except Exception as e:
+                    print(f"Error auditing website {website}: {e}", file=sys.stderr)
+
+            # Format social links and emails
+            email_socials_parts = []
+            if email:
+                email_socials_parts.append(f"Email: {email}")
+            if socials:
+                email_socials_parts.append(f"Socials: {', '.join(socials[:2])}")
+            email_socials_str = " | ".join(email_socials_parts) if email_socials_parts else "N/A"
+
+            # Pitch Hook calculation
+            pitch_hook = _get_pitch_hook(mobile_load_ms, has_chatbot)
+            pagespeed_score = _calculate_pagespeed_score(mobile_load_ms / 1000.0) if mobile_load_ms > 0 else 0
+
+            final_leads.append({
+                "Business Name": cand.get("Business Name", "Unknown Business"),
+                "Contact": phone if phone != "Hidden" else (email or "N/A"),
+                "Phone": phone,
+                "Email": email or "N/A",
+                "Socials": ", ".join(socials) if socials else "N/A",
+                "Email/Socials": email_socials_str,
+                "Website": website,
+                "Region": region,
+                "Has_Chatbot_Widget": has_chatbot,
+                "Mobile_Load_Ms": mobile_load_ms,
+                "Mobile Load Time": f"{mobile_load_ms / 1000.0:.2f}s" if mobile_load_ms > 0 else "N/A",
+                "PageSpeed Score": f"{pagespeed_score}/100" if mobile_load_ms > 0 else "N/A",
+                "Pitch": pitch_hook,
+                "Pitch_Hook": pitch_hook
+            })
+
+        await page.close()
+        await context.close()
+        await browser.close()
+
+    return final_leads
+
+async def _audit_urls_cli(urls_input: str, limit: int = 15) -> list[dict]:
+    """Audits arbitrary URL list with deep signal inspection."""
     raw_tokens = [tok.strip().strip(",") for tok in re.split(r'[\s,\n]+', urls_input.strip()) if tok.strip()]
     urls = []
     for tok in raw_tokens:
         if not tok.startswith("http://") and not tok.startswith("https://"):
             tok = "https://" + tok
         urls.append(tok)
-        
+
     leads = []
     if not urls:
         return leads
 
     async with async_playwright() as p:
-        browser = await p.chromium.launch(headless=True)
-        # Emulate Mobile Safari / iPhone 14
-        context = await browser.new_context(
-            viewport={"width": 390, "height": 844},
-            user_agent="Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
-            is_mobile=True,
-            has_touch=True
+        browser = await p.chromium.launch(
+            headless=True,
+            args=["--no-sandbox", "--disable-blink-features=AutomationControlled"]
         )
 
-        for target_url in urls[:15]: # audit up to 15 sites per run
-            page = await context.new_page()
-            start_time = time.perf_counter()
-            load_time_seconds = 0.0
-            html = ""
-            
-            try:
-                # Measure mobile load time
-                response = await page.goto(target_url, wait_until="domcontentloaded", timeout=25000)
-                try:
-                    await page.wait_for_load_state("load", timeout=5000)
-                except Exception:
-                    pass
-                end_time = time.perf_counter()
-                load_time_seconds = round(end_time - start_time, 2)
-                
-                # Check browser navigation timing if available
-                perf_nav = await page.evaluate("""() => {
-                    try {
-                        const nav = performance.getEntriesByType('navigation')[0];
-                        if (nav && nav.loadEventEnd > 0) {
-                            return (nav.loadEventEnd - nav.startTime) / 1000;
-                        }
-                    } catch (e) {}
-                    return null;
-                }""")
-                if perf_nav and perf_nav > 0:
-                    load_time_seconds = round(perf_nav, 2)
+        for target_url in urls[:limit]:
+            audit = await _audit_website_signal(browser, target_url)
+            load_ms = audit.get("mobile_load_ms", 0)
+            has_chat = audit.get("has_chatbot", False)
+            pitch = _get_pitch_hook(load_ms, has_chat)
+            score = _calculate_pagespeed_score(load_ms / 1000.0) if load_ms > 0 else 0
 
-                html = await page.content()
-            except Exception as e:
-                # Fallback for slow/timing-out sites
-                end_time = time.perf_counter()
-                load_time_seconds = round(end_time - start_time, 2)
-                if load_time_seconds < 10.0:
-                    load_time_seconds = 10.0
-                try:
-                    html = await page.content()
-                except Exception:
-                    html = ""
-
-            soup = BeautifulSoup(html, 'html.parser') if html else BeautifulSoup("", 'html.parser')
-            page_text = soup.get_text(separator=" ") if html else ""
-            
-            # 1. Business Name
-            raw_title = ""
-            og_site = soup.select_one('meta[property="og:site_name"]')
-            if og_site and og_site.get('content'):
-                raw_title = og_site['content'].strip()
-            elif soup.title and soup.title.string:
-                raw_title = soup.title.string.strip()
-            elif soup.select_one('h1'):
-                raw_title = soup.select_one('h1').text.strip()
-                
-            business_name = _clean_business_name(raw_title, domain=target_url)
-            
-            # 2. Phone
-            phone = _extract_phone_from_soup(soup, page_text)
-            
-            # 3. Email & Socials
-            email, socials = _extract_emails_and_socials(soup, page_text)
             email_socials_parts = []
-            if email:
-                email_socials_parts.append(f"Email: {email}")
-            if socials:
-                email_socials_parts.append(f"Socials: {', '.join(socials[:3])}")
+            if audit.get("email"):
+                email_socials_parts.append(f"Email: {audit['email']}")
+            if audit.get("socials"):
+                email_socials_parts.append(f"Socials: {', '.join(audit['socials'][:2])}")
             email_socials_str = " | ".join(email_socials_parts) if email_socials_parts else "N/A"
-            
-            # 4. Mobile Load Time & PageSpeed Score
-            pagespeed_score = _calculate_pagespeed_score(load_time_seconds)
-            
-            # 5. Venture Pitch Strategy
-            if pagespeed_score < 70 or load_time_seconds >= 3.0:
-                pitch = f"Venture #2 Landing Page Sprint (Slow mobile load time: {load_time_seconds:.2f}s, Score: {pagespeed_score}/100) & Venture #4 RAG Bots"
-            else:
-                pitch = "Venture #4 RAG Bots (High performance site, pitch lead conversion & customer service automation)"
-                
+
             leads.append({
-                "Business Name": business_name,
-                "Contact": phone if phone != "Hidden" else (email or "N/A"),
-                "Phone": phone,
-                "Email": email or "N/A",
-                "Socials": ", ".join(socials) if socials else "N/A",
+                "Business Name": audit.get("business_name") or _clean_business_name("", domain=target_url),
+                "Contact": audit.get("phone", "Hidden") if audit.get("phone") != "Hidden" else (audit.get("email") or "N/A"),
+                "Phone": audit.get("phone", "Hidden"),
+                "Email": audit.get("email") or "N/A",
+                "Socials": ", ".join(audit.get("socials", [])) if audit.get("socials") else "N/A",
                 "Email/Socials": email_socials_str,
                 "Website": target_url,
-                "Mobile Load Time": f"{load_time_seconds:.2f}s",
-                "PageSpeed Score": f"{pagespeed_score}/100",
-                "Pitch": pitch
+                "Region": "US",
+                "Has_Chatbot_Widget": has_chat,
+                "Mobile_Load_Ms": load_ms,
+                "Mobile Load Time": f"{load_ms / 1000.0:.2f}s" if load_ms > 0 else "N/A",
+                "PageSpeed Score": f"{score}/100" if load_ms > 0 else "N/A",
+                "Pitch": pitch,
+                "Pitch_Hook": pitch,
             })
-            
-            await page.close()
-            
+
         await browser.close()
-        
+
     return leads
 
 async def main():
-    parser = argparse.ArgumentParser(description="Insight Scraper Worker")
-    parser.add_argument("query", nargs="?", default="", help="Directory search query or URL(s)")
+    parser = argparse.ArgumentParser(description="Insight Scraper Worker - International B2B Lead & Signal Scraper")
+    parser.add_argument("pos_query", nargs="?", default="", help="Positional query argument for backwards compatibility")
+    parser.add_argument("--query", "-q", default="", help="Directory search query or URL(s)")
+    parser.add_argument(
+        "--region", 
+        "-r", 
+        default="US", 
+        choices=["US", "GB", "AU", "CA", "AE", "KE", "us", "gb", "au", "ca", "ae", "ke"], 
+        help="Target region: US, GB, AU, CA, AE, KE"
+    )
     parser.add_argument(
         "--source", 
         "-s", 
-        choices=["directory", "url_list", "urls", "audit"], 
-        default="directory", 
-        help="Source type: directory for directory scraping, url_list for URL list auditing"
+        default="gmaps", 
+        choices=["gmaps", "duckduckgo-places", "yellowpages-intl", "directory", "url_list", "urls", "audit"], 
+        help="Source: gmaps, duckduckgo-places, yellowpages-intl, directory, or url_list"
     )
+    parser.add_argument("--limit", "-l", type=int, default=25, help="Maximum number of leads (default: 25)")
     args = parser.parse_args()
 
-    input_query = args.query.strip()
+    input_query = (args.query or args.pos_query or "").strip()
     if not input_query:
         print("[]")
         return
 
-    # Normalize source
     source_type = args.source.lower()
-    if source_type in ["url_list", "urls", "audit"]:
-        leads = await _audit_urls_async(input_query)
-    else:
-        leads = await _scrape_directory_async(input_query)
+    region = args.region.upper()
+    limit = max(1, args.limit)
 
+    if source_type in ["url_list", "urls", "audit"]:
+        leads = await _audit_urls_cli(input_query, limit=limit)
+    else:
+        leads = await run_scraper(input_query, region=region, source=source_type, limit=limit)
+
+    # Print raw JSON directly to stdout for caller subprocess
     print(json.dumps(leads))
 
 if __name__ == '__main__':
