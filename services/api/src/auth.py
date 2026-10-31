@@ -15,6 +15,21 @@ JWKS_URL = f"{CLERK_FRONTEND_API}/.well-known/jwks.json"
 # In-memory cache for JWKS to avoid fetching on every request
 _jwks_cache = None
 
+def is_dev_bypass() -> bool:
+    """
+    Determines whether local dev auth bypass is active.
+    Defaults to True when DEV_BYPASS_AUTH=true, or when CLERK_FRONTEND_API is not configured/placeholder.
+    """
+    env_bypass = os.getenv("DEV_BYPASS_AUTH")
+    if env_bypass is not None:
+        return env_bypass.strip().lower() in ("true", "1", "yes")
+
+    # If DEV_BYPASS_AUTH is not explicitly provided, check if CLERK_FRONTEND_API is missing or placeholder
+    clerk_api = os.getenv("CLERK_FRONTEND_API", "").strip()
+    if not clerk_api or "your-clerk" in clerk_api or "placeholder" in clerk_api:
+        return True
+    return False
+
 def get_jwks():
     global _jwks_cache
     if not _jwks_cache:
@@ -32,11 +47,12 @@ def verify_clerk_token(credentials: HTTPAuthorizationCredentials | None = Depend
     """
     Verifies Clerk RS256 JWT using JWKS keys.
     Provides DEV_BYPASS_AUTH=true flag to allow local solo scraping runs without external auth roundtrips.
+    Defaults to true when CLERK_FRONTEND_API is not configured.
+    Returns tenant_id="local_operator" in dev bypass mode.
     """
     # 1. Clean DEV_BYPASS_AUTH check for solo local scraping runs
-    dev_bypass = os.getenv("DEV_BYPASS_AUTH", "false").lower() in ("true", "1", "yes")
-    if dev_bypass:
-        return os.getenv("DEV_TENANT_ID", "dev_tenant")
+    if is_dev_bypass():
+        return os.getenv("DEV_TENANT_ID", "local_operator")
 
     if not credentials or not credentials.credentials:
         raise HTTPException(status_code=401, detail="Missing or invalid authorization header")
