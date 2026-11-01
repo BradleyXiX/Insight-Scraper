@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, DateTime
+from sqlalchemy import Column, Integer, String, DateTime, Boolean
 from sqlalchemy.orm import declarative_base
 from datetime import datetime, timezone
 
@@ -28,4 +28,11 @@ class Lead(Base):
     contact = Column(String)
     website = Column(String)
     search_query = Column(String)
+    phone = Column(String, nullable=True)
+    email = Column(String, nullable=True)
+    socials = Column(String, nullable=True)
+    has_chatbot_widget = Column(Boolean, default=False, nullable=True)
+    mobile_load_ms = Column(Integer, default=0, nullable=True)
+    pitch_hook = Column(String, nullable=True)
+    region = Column(String, default="US", nullable=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
