@@ -96,25 +96,23 @@ STRIPE_SECRET_KEY=sk_test_...
 STRIPE_WEBHOOK_SECRET=whsec_...
 ```
 
-### 2. Start the Stack
+### 2. Start the Scraper Backend Locally
 
-Run the following command from the root directory to build and start the database, backend, and frontend containers:
+Run the following command from the root directory to build and start the PostgreSQL database and FastAPI scraper backend (Playwright headless Chromium):
 ```bash
-docker-compose up --build
+docker compose up --build
 ```
 
-- **Next.js Dashboard:** Available at `http://localhost:3000`
-- **FastAPI Docs:** Available at `http://localhost:8000/docs`
-- **PostgreSQL:** Running on port `5432`
+- **FastAPI Docs & Health:** Available at `http://localhost:8000/docs` and `http://localhost:8000/health`
+- **PostgreSQL Database:** Running on port `5432` (database schema and RLS policies are initialized automatically on startup)
 
-### 3. Database Initialization (First Time Only)
-
-Once the containers are running, you need to initialize the PostgreSQL schema and Row-Level Security policies. Exec into the running API container:
+To run the Next.js dashboard locally alongside the backend:
 ```bash
-docker exec -it <api_container_name> /bin/bash
-cd src
-python init_db.py
+cd apps/dashboard
+npm install
+npm run dev
 ```
+Dashboard will be available at `http://localhost:3000` and automatically connects to your local FastAPI backend at `http://localhost:8000`.
 
 ---
 
@@ -139,11 +137,15 @@ The Next.js dashboard is optimized for seamless deployment on Vercel:
 3. Configure the required environment variables (`NEXT_PUBLIC_API_URL`, Clerk, and Stripe keys).
 4. Deploy to the Edge for global low-latency access.
 
-### Backend & Database Deployment
-The FastAPI backend and PostgreSQL database are fully containerized, making them portable across cloud providers:
-- **Database:** Deploy a managed PostgreSQL instance (e.g., Supabase, Neon, AWS RDS) and initialize the schema and RLS policies using `src/init_db.py`.
-- **API Container:** Deploy the FastAPI service using the provided `services/api/Dockerfile` to a container runtime like Render, AWS ECS/AppRunner, or Google Cloud Run. **Note:** Allocate sufficient RAM (1GB+) for the headless Chromium (Playwright) instances.
-- **Environment:** Securely inject the backend environment variables into your container environment.
+### Backend & Database Deployment (Render Blueprint)
+The FastAPI scraper backend and PostgreSQL database are ready for deployment via Render's free tier with zero cloud costs:
+1. Connect your GitHub repository to [Render](https://render.com).
+2. Use **New + -> Blueprint** and select your repository; Render will automatically detect `render.yaml`.
+3. The blueprint provisions:
+   - A free PostgreSQL database (`insight-scraper-db`).
+   - A free Web Service running the FastAPI + Playwright container with memory safeguards enabled (`LOW_MEMORY_MODE=true`, JS heap capped at 256MB, and heavy media blocking to prevent OOM errors on Render's 512MB RAM free tier).
+4. Point your Vercel frontend's `NEXT_PUBLIC_API_URL` to your Render service URL (e.g., `https://insight-scraper-api.onrender.com`).
+Alternatively, connect an external free PostgreSQL instance (such as Supabase or Neon) by updating `DATABASE_URL` in the Render service settings.
 
 ---
 

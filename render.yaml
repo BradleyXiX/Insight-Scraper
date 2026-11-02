@@ -1,0 +1,44 @@
+# -----------------------------------------------------------------------------
+# Render Blueprint Specification for Insight Scraper Backend
+# Free-Tier Optimized with Headless Playwright Chromium Memory Safeguards
+# -----------------------------------------------------------------------------
+version: "1"
+
+services:
+  - type: web
+    name: insight-scraper-api
+    env: docker
+    dockerfilePath: services/api/Dockerfile
+    dockerContext: services/api
+    plan: free
+    region: oregon
+    healthCheckPath: /health
+    envVars:
+      - key: PORT
+        value: 8000
+      - key: PYTHONUNBUFFERED
+        value: "1"
+      # Limits Chromium memory footprint, restricts JS heap to 256MB, and blocks media assets
+      - key: LOW_MEMORY_MODE
+        value: "true"
+      - key: DEV_BYPASS_AUTH
+        value: "true"
+      - key: DEV_TENANT_ID
+        value: "local_operator"
+      - key: DATABASE_URL
+        fromDatabase:
+          name: insight-scraper-db
+          property: connectionString
+      - key: CLERK_FRONTEND_API
+        sync: false
+      - key: STRIPE_SECRET_KEY
+        sync: false
+      - key: STRIPE_WEBHOOK_SECRET
+        sync: false
+
+databases:
+  - name: insight-scraper-db
+    plan: free
+    region: oregon
+    databaseName: foundry
+    user: foundry_user

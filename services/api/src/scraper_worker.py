@@ -15,6 +15,7 @@ Outputs JSON array directly to stdout.
 import argparse
 import asyncio
 import json
+import gc
 import os
 import random
 import re
@@ -54,6 +55,39 @@ REGION_METADATA = {
     "AE": {"locale": "en-AE", "timezone": "Asia/Dubai", "country": "United Arab Emirates", "default_geo": "Dubai"},
     "KE": {"locale": "en-KE", "timezone": "Africa/Nairobi", "country": "Kenya", "default_geo": "Nairobi"}
 }
+
+def get_optimized_browser_args() -> list[str]:
+    """
+    Returns Chromium launch flags optimized for containerized, resource-constrained
+    environments (such as Render's 512MB free tier and Docker containers).
+    Limits memory footprint, disables hardware acceleration, disables unnecessary background
+    processes, and restricts V8 JS engine heap size.
+    """
+    return [
+        "--no-sandbox",
+        "--disable-setuid-sandbox",
+        "--disable-dev-shm-usage",
+        "--disable-gpu",
+        "--disable-software-rasterizer",
+        "--no-zygote",
+        "--renderer-process-limit=1",
+        "--disable-blink-features=AutomationControlled",
+        "--disable-infobars",
+        "--disable-web-security",
+        "--disable-background-networking",
+        "--disable-background-timer-throttling",
+        "--disable-backgrounding-occluded-windows",
+        "--disable-breakpad",
+        "--disable-component-extensions-with-background-pages",
+        "--disable-extensions",
+        "--disable-default-apps",
+        "--disable-sync",
+        "--disable-translate",
+        "--metrics-recording-only",
+        "--mute-audio",
+        "--no-first-run",
+        "--js-flags=--max-old-space-size=256",
+    ]
 
 STEALTH_INIT_SCRIPT = """
 (() => {
@@ -237,6 +271,15 @@ async def _audit_website_signal(browser, target_url: str) -> dict:
     )
     await context.add_init_script(STEALTH_INIT_SCRIPT)
 
+    # Low-memory optimization: Abort heavy media, videos, and fonts to conserve memory in constrained environments
+    if os.getenv("LOW_MEMORY_MODE", "true").lower() in ("true", "1", "yes"):
+        async def _block_heavy_resources(route):
+            if route.request.resource_type in ("image", "media", "font"):
+                await route.abort()
+            else:
+                await route.continue_()
+        await context.route("**/*", _block_heavy_resources)
+
     mobile_load_ms = 0
     has_chatbot = False
     phone = "Hidden"
@@ -312,11 +355,11 @@ async def _audit_website_signal(browser, target_url: str) -> dict:
                     contact_link = urllib.parse.urljoin(target_url, a['href'])
                     break
             if contact_link and contact_link != target_url:
+                c_page = None
                 try:
-                    c_page = await browser.new_page()
+                    c_page = await context.new_page()
                     await c_page.goto(contact_link, wait_until="domcontentloaded", timeout=8000)
                     c_html = await c_page.content()
-                    await c_page.close()
                     c_soup = BeautifulSoup(c_html, 'html.parser')
                     c_text = c_soup.get_text(separator=" ")
                     c_email, c_socials = _extract_emails_and_socials(c_soup, c_text)
@@ -330,6 +373,12 @@ async def _audit_website_signal(browser, target_url: str) -> dict:
                             phone = c_phone
                 except Exception:
                     pass
+                finally:
+                    if c_page:
+                        try:
+                            await c_page.close()
+                        except Exception:
+                            pass
 
         raw_title = ""
         og_site = soup.select_one('meta[property="og:site_name"]')
@@ -618,14 +667,7 @@ async def run_scraper(query: str, region: str = "US", source: str = "gmaps", lim
             camoufox_available = False
 
     async with async_playwright() as p:
-        browser_launch_args = [
-            "--disable-blink-features=AutomationControlled",
-            "--disable-infobars",
-            "--no-sandbox",
-            "--disable-setuid-sandbox",
-            "--disable-dev-shm-usage",
-            "--disable-web-security"
-        ]
+        browser_launch_args = get_optimized_browser_args()
 
         browser = await p.chromium.launch(
             headless=True,
@@ -694,6 +736,8 @@ async def run_scraper(query: str, region: str = "US", source: str = "gmaps", lim
                 email_socials_parts.append(f"Socials: {', '.join(socials[:2])}")
             email_socials_str = " | ".join(email_socials_parts) if email_socials_parts else "N/A"
 
+            gc.collect()
+
             # Pitch Hook calculation
             pitch_hook = _get_pitch_hook(mobile_load_ms, has_chatbot)
             pagespeed_score = _calculate_pagespeed_score(mobile_load_ms / 1000.0) if mobile_load_ms > 0 else 0
@@ -737,7 +781,7 @@ async def _audit_urls_cli(urls_input: str, limit: int = 15) -> list[dict]:
     async with async_playwright() as p:
         browser = await p.chromium.launch(
             headless=True,
-            args=["--no-sandbox", "--disable-blink-features=AutomationControlled"]
+            args=get_optimized_browser_args()
         )
 
         for target_url in urls[:limit]:
