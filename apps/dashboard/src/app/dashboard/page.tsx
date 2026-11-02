@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { Search, Download, AlertCircle, Play, Globe, Bot, Zap, CheckCircle, ExternalLink, ChevronDown } from "lucide-react";
 import { useAuth } from "@clerk/nextjs";
+import { getApiUrl } from "@/lib/api";
 
 interface LeadItem {
   id?: number | string;
@@ -62,7 +63,7 @@ export default function DashboardPage() {
   const [isScraping, setIsScraping] = useState(false);
   
   const [leads, setLeads] = useState<LeadItem[]>([]);
-  const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+  const apiUrl = getApiUrl();
 
   // Helper to extract pitch hook according to signal rules
   const getPitchHook = (lead: LeadItem): string => {

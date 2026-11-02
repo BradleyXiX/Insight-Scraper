@@ -5,6 +5,7 @@ import { useAuth } from '@clerk/nextjs';
 import { Check } from 'lucide-react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
+import { getApiUrl } from '@/lib/api';
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -41,7 +42,7 @@ export function PricingCard({
 
       // We'll assume the backend is hosted at http://localhost:8000 for local dev
       // In production, this should be an environment variable.
-      const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+      const API_BASE = getApiUrl();
       
       const response = await fetch(`${API_BASE}/api/checkout`, {
         method: 'POST',
