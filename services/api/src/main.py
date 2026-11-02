@@ -182,12 +182,10 @@ async def get_leads(
             for l in leads
         ]
 
-# AWS Lambda compatibility
-try:
-    from mangum import Mangum
-    lambda_handler = Mangum(app)
-except ImportError:
-    pass
+@app.get("/health")
+def health_check():
+    """Health check endpoint for container orchestrators (Render, Docker, etc.)."""
+    return {"status": "ok"}
 
 if __name__ == "__main__":
     import uvicorn
