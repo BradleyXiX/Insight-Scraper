@@ -1,11 +1,21 @@
 import os
+import time
 from db import engine
 from models import Base
 from sqlalchemy import text
 
-def init_db():
-    print("Creating tables...")
-    Base.metadata.create_all(bind=engine)
+def init_db(max_retries: int = 10, retry_delay: int = 2):
+    print("Connecting to database and creating tables...")
+    for attempt in range(1, max_retries + 1):
+        try:
+            Base.metadata.create_all(bind=engine)
+            break
+        except Exception as e:
+            if attempt == max_retries:
+                print(f"Failed to connect to database after {max_retries} attempts: {e}")
+                raise
+            print(f"Database connection attempt {attempt}/{max_retries} failed ({e}). Retrying in {retry_delay}s...")
+            time.sleep(retry_delay)
     
     print("Applying Row-Level Security (RLS) policies and ensuring columns...")
     with engine.begin() as connection:
