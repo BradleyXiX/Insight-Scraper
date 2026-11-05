@@ -1,14 +1,10 @@
 import Link from "next/link";
 import { ArrowRight, Database, Shield, Zap } from "lucide-react";
-import HeroScene from "@/components/HeroScene";
 import { Logo } from "@/components/Logo";
 
 export default function Home() {
   return (
     <div className="min-h-screen bg-background text-foreground font-sans relative overflow-hidden flex flex-col selection:bg-primary-500/30">
-      {/* 3D Background */}
-      <HeroScene />
-      
       {/* Navigation */}
       <nav className="relative z-10 flex items-center justify-between px-8 py-6 w-full max-w-7xl mx-auto border-b border-border bg-surface/80 backdrop-blur-md">
         <Logo />
