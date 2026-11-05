@@ -1,112 +1,177 @@
 "use client";
 
+import React, { useEffect, useRef, useState } from "react";
 import { UserButton, OrganizationSwitcher } from "@clerk/nextjs";
-import Link from "next/link";
-import { usePathname } from "next/navigation";
-import { LayoutDashboard, Search, History, Settings, Database, CreditCard, Sparkles } from "lucide-react";
+import { Menu, X, Sparkles } from "lucide-react";
+import { Logo } from "@/components/Logo";
+import { SidebarNav } from "@/components/SidebarNav";
 
-export default function DashboardLayout({ children }: { children: React.ReactNode }) {
-  const pathname = usePathname();
+export default function DashboardLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}): React.ReactElement {
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const menuButtonRef = useRef<HTMLButtonElement>(null);
 
-  const getLinkClasses = (path: string) => {
-    const isActive = pathname === path;
-    return `group flex items-center gap-3 px-4 py-3 text-sm font-bold uppercase tracking-wider transition-all duration-300 border ${
-      isActive 
-        ? "bg-primary-600/10 text-primary-400 border-primary-500 shadow-glow" 
-        : "text-foreground/50 border-transparent hover:text-foreground hover:bg-surface-hover hover:border-border"
-    }`;
-  };
+  // Close drawer on Escape key and restore focus to menu button
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && drawerOpen) {
+        setDrawerOpen(false);
+        menuButtonRef.current?.focus();
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [drawerOpen]);
 
   return (
-    <div className="flex h-screen bg-background text-foreground font-sans">
-      {/* Sidebar */}
-      <aside className="w-64 border-r border-border bg-surface flex flex-col relative overflow-hidden shrink-0">
+    <div className="flex h-screen bg-background text-foreground font-sans overflow-hidden">
+      {/* Skip link as first focusable element */}
+      <a
+        href="#main"
+        className="sr-only focus:not-sr-only focus:fixed focus:top-4 focus:left-4 focus:z-50 focus:px-4 focus:py-2 focus:bg-white focus:text-black focus:font-semibold focus:outline-none"
+      >
+        Skip to content
+      </a>
+
+      {/* Desktop Sidebar (visible at lg and above) */}
+      <aside className="hidden lg:flex w-64 border-r border-border bg-surface flex-col shrink-0 relative overflow-hidden">
         <div className="h-16 flex items-center px-6 border-b border-border gap-3 bg-surface">
-          <div className="w-8 h-8 bg-primary-600 flex items-center justify-center border border-primary-500 shadow-glow">
-            <Database className="w-4 h-4 text-white" />
-          </div>
-          <span className="font-display font-bold text-white uppercase tracking-widest text-sm">
-            Foundry-SaaS
-          </span>
+          <Logo size={24} />
         </div>
-        
-        <div className="p-4 flex-1 flex flex-col gap-8">
-          <div>
-            <div className="text-xs font-bold text-foreground/40 uppercase tracking-widest mb-3 px-4 font-mono">
-              Menu
-            </div>
-            <nav className="space-y-1">
-              <Link href="/dashboard" className={getLinkClasses("/dashboard")}>
-                <Search className="w-4 h-4" />
-                New Extraction
-              </Link>
-              <Link href="/dashboard/history" className={getLinkClasses("/dashboard/history")}>
-                <History className="w-4 h-4" />
-                History
-              </Link>
-            </nav>
-          </div>
-          
-          <div>
-            <div className="text-xs font-bold text-foreground/40 uppercase tracking-widest mb-3 px-4 font-mono">
-              Settings
-            </div>
-            <nav className="space-y-1">
-              <Link href="/dashboard/billing" className={getLinkClasses("/dashboard/billing")}>
-                <CreditCard className="w-4 h-4" />
-                Billing & Plans
-              </Link>
-              <Link href="/dashboard/settings" className={getLinkClasses("/dashboard/settings")}>
-                <Settings className="w-4 h-4" />
-                Settings
-              </Link>
-            </nav>
-          </div>
+
+        <div className="p-4 flex-1 overflow-y-auto">
+          <SidebarNav />
         </div>
       </aside>
 
+      {/* Mobile Drawer Backdrop (below lg) */}
+      <div
+        onClick={() => {
+          setDrawerOpen(false);
+          menuButtonRef.current?.focus();
+        }}
+        className={`fixed inset-0 bg-black/70 z-40 lg:hidden ${
+          drawerOpen ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none"
+        }`}
+        style={{
+          transition: "opacity 300ms cubic-bezier(0.22, 1, 0.36, 1)",
+        }}
+        aria-hidden="true"
+      />
+
+      {/* Mobile Slide-over Drawer Panel (below lg) */}
+      <div
+        className={`fixed inset-y-0 left-0 w-72 max-w-full bg-surface border-r border-border z-50 lg:hidden flex flex-col p-6 shadow-2xl ${
+          drawerOpen ? "pointer-events-auto" : "pointer-events-none"
+        }`}
+        style={{
+          transform: drawerOpen ? "translateX(0)" : "translateX(-100%)",
+          transition: "transform 300ms cubic-bezier(0.22, 1, 0.36, 1)",
+        }}
+      >
+        <div className="flex items-center justify-between pb-6 border-b border-border mb-6">
+          <Logo size={24} />
+          <button
+            onClick={() => {
+              setDrawerOpen(false);
+              menuButtonRef.current?.focus();
+            }}
+            aria-label="Close navigation"
+            className="p-1.5 border border-border bg-surface hover:bg-surface-hover text-foreground hover:text-white transition-colors cursor-pointer"
+          >
+            <X className="w-5 h-5" strokeWidth={1.5} />
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto">
+          <SidebarNav
+            stagger={true}
+            onNavigate={() => {
+              setDrawerOpen(false);
+              menuButtonRef.current?.focus();
+            }}
+          />
+        </div>
+      </div>
+
       {/* Main Content Area */}
-      <main className="flex-1 flex flex-col min-w-0 overflow-hidden relative bg-background">
-        {/* Top Navigation */}
-        <header className="h-16 flex items-center justify-between px-8 border-b border-border bg-surface shrink-0 sticky top-0 z-50">
-          <div className="flex items-center text-sm font-medium text-foreground/70 font-mono">
-            <span className="bg-surface-hover px-3 py-1.5 border border-border flex items-center gap-2 uppercase tracking-widest text-xs font-bold">
-              <Sparkles className="w-3 h-3 text-primary-400" />
-              Pro Workspace
-            </span>
+      <div className="flex-1 flex flex-col min-w-0 overflow-hidden relative bg-background">
+        {/* Top Header */}
+        <header className="h-16 flex items-center justify-between px-4 sm:px-6 lg:px-8 border-b border-border bg-surface shrink-0 z-30">
+          <div className="flex items-center">
+            {/* Mobile Menu Toggle Button (below lg) */}
+            <button
+              ref={menuButtonRef}
+              onClick={() => setDrawerOpen(!drawerOpen)}
+              aria-expanded={drawerOpen}
+              aria-label={drawerOpen ? "Close navigation" : "Open navigation"}
+              className="lg:hidden p-2 border border-border bg-surface hover:bg-surface-hover text-foreground hover:text-white transition-colors cursor-pointer mr-3"
+            >
+              <div
+                style={{
+                  transform: drawerOpen ? "rotate(90deg)" : "rotate(0deg)",
+                  transition: "transform 300ms cubic-bezier(0.22, 1, 0.36, 1)",
+                }}
+              >
+                {drawerOpen ? (
+                  <X className="w-5 h-5" strokeWidth={1.5} />
+                ) : (
+                  <Menu className="w-5 h-5" strokeWidth={1.5} />
+                )}
+              </div>
+            </button>
+
+            {/* Workspace status badge */}
+            <div className="flex items-center text-xs font-mono font-medium text-foreground/70">
+              <span className="px-2.5 py-1 bg-surface-hover border border-border flex items-center gap-2 uppercase tracking-wider">
+                <Sparkles className="w-3.5 h-3.5 text-accent shrink-0" strokeWidth={1.5} />
+                <span>Workspace</span>
+              </span>
+            </div>
           </div>
-          <div className="flex items-center gap-6">
+
+          {/* User & Org Controls */}
+          <div className="flex items-center gap-4 sm:gap-6">
             <div className="border border-border bg-surface-hover px-2 py-1 hover:bg-surface transition-colors">
-              <OrganizationSwitcher 
+              <OrganizationSwitcher
                 appearance={{
                   elements: {
-                    organizationSwitcherTrigger: "text-foreground hover:text-primary-400 transition-colors focus:ring-0",
-                    organizationPreviewTextContainer: "text-foreground font-mono font-bold",
+                    organizationSwitcherTrigger:
+                      "text-foreground hover:text-accent transition-colors focus:ring-0 rounded-none",
+                    organizationPreviewTextContainer:
+                      "text-foreground font-mono font-medium",
                     organizationSwitcherTriggerIcon: "text-foreground/50",
-                    avatarBox: "w-6 h-6",
-                  }
+                    avatarBox: "w-6 h-6 rounded-none",
+                  },
                 }}
               />
             </div>
-            <div className="pl-6 border-l border-border flex items-center">
-              <UserButton 
+            <div className="pl-4 sm:pl-6 border-l border-border flex items-center">
+              <UserButton
                 appearance={{
                   elements: {
-                    userButtonAvatarBox: "w-8 h-8 border-2 border-border hover:border-primary-500 transition-colors rounded-none",
-                  }
+                    userButtonAvatarBox:
+                      "w-8 h-8 border border-border hover:border-accent transition-colors rounded-none",
+                  },
                 }}
               />
             </div>
           </div>
         </header>
-        
-        {/* Page Content */}
-        <div className="flex-1 overflow-auto p-8 relative scroll-smooth">
-          <div className="max-w-6xl mx-auto">
-            {children}
-          </div>
-        </div>
-      </main>
+
+        {/* Scrolling Content targeted by skip link */}
+        <main
+          id="main"
+          tabIndex={-1}
+          className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8 outline-none"
+        >
+          <div className="max-w-6xl w-full mx-auto">{children}</div>
+        </main>
+      </div>
     </div>
   );
 }

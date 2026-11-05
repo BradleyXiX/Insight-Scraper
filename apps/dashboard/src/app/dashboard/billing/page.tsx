@@ -1,8 +1,25 @@
 "use client";
 
 import { useState } from "react";
-import { Check, CreditCard, Zap, AlertTriangle, ShieldCheck, Building2 } from "lucide-react";
+import { AlertTriangle, Building2 } from "lucide-react";
 import { useAuth } from "@clerk/nextjs";
+import { PriceTier } from "@/components/PriceTier";
+
+const PRO_FEATURES = [
+  "Unlimited B2B searches",
+  "High speed concurrency (10x)",
+  "Export to CSV and JSON",
+  "Priority 24/7 support",
+  "Automated data enrichment",
+];
+
+const ENTERPRISE_FEATURES = [
+  "Dedicated server infrastructure",
+  "Bypass rate limits",
+  "Custom data formatting",
+  "Dedicated account manager",
+  "99.9% uptime SLA guarantee",
+];
 
 export default function BillingPage() {
   const { orgId } = useAuth();
@@ -41,170 +58,74 @@ export default function BillingPage() {
   };
 
   return (
-    <div className="space-y-12 animate-in fade-in slide-in-from-bottom-8 duration-1000 max-w-5xl mx-auto py-8">
+    <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
       {/* Header Section */}
-      <div className="flex flex-col gap-4 text-center items-center">
-        <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-indigo-500/10 text-indigo-400 ring-1 ring-indigo-500/20 text-sm font-medium mb-2">
-          <SparklesIcon className="w-4 h-4" />
-          Unlock the full potential
-        </div>
-        <h1 className="text-4xl md:text-5xl font-extrabold tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-white via-indigo-100 to-zinc-400 pb-2">
-          Plans & Billing
+      <div className="flex flex-col gap-2">
+        <h1 className="text-3xl font-semibold tracking-tight text-white">
+          Plans and billing
         </h1>
-        <p className="text-lg text-zinc-400 max-w-xl">
-          Scale your business with high-speed extractions. Manage your subscription and organization settings seamlessly.
+        <p className="text-foreground/70">
+          Scale your business with high speed extractions. Manage your subscription and organization settings seamlessly.
         </p>
       </div>
 
       {error && (
-        <div className="bg-red-500/10 border border-red-500/20 text-red-400 px-4 py-4 rounded-2xl flex items-center gap-3 backdrop-blur-sm shadow-xl shadow-red-500/5 animate-in slide-in-from-top-4">
-          <AlertTriangle className="w-5 h-5 shrink-0" />
-          <p className="font-medium">{error}</p>
+        <div className="panel p-4 bg-danger-quiet border border-danger/40 text-danger flex items-center gap-3">
+          <AlertTriangle className="w-5 h-5 shrink-0" strokeWidth={1.5} />
+          <p className="text-sm font-medium">{error}</p>
         </div>
       )}
 
       {!orgId && !error && (
-        <div className="bg-amber-500/10 border border-amber-500/20 text-amber-400 px-5 py-4 rounded-2xl flex items-center gap-4 backdrop-blur-sm shadow-xl shadow-amber-500/5">
-          <Building2 className="w-6 h-6 shrink-0" />
+        <div className="panel p-4 bg-attention-quiet border border-attention/30 text-attention flex items-center gap-3">
+          <Building2 className="w-5 h-5 shrink-0" strokeWidth={1.5} />
           <div>
-            <h4 className="font-bold">Organization Required</h4>
-            <p className="text-sm opacity-90">Please select or create an Organization using the switcher in the top right before subscribing to a plan.</p>
+            <h4 className="font-semibold text-sm">Organization required</h4>
+            <p className="text-xs opacity-90">Please select or create an organization using the switcher in the top right before subscribing to a plan.</p>
           </div>
         </div>
       )}
 
       {/* Pricing Cards Grid */}
-      <div className="grid lg:grid-cols-2 gap-8 items-stretch pt-4">
-        {/* Pro Plan */}
-        <div className="panel border-primary-500 shadow-glow transition-all duration-500 hover:-translate-y-1 flex flex-col p-8 sm:p-10 relative">
+      <div className="grid lg:grid-cols-2 gap-8 items-stretch pt-2">
+        <PriceTier
+          name="Pro"
+          price="$49"
+          period="/month"
+          description="Everything you need to extract and enrich leads"
+          features={PRO_FEATURES}
+          featured={true}
+          ctaText={isLoading ? "Redirecting to Stripe..." : "Subscribe now"}
+          onAction={handleSubscribe}
+          actionDisabled={isLoading || !orgId}
+        />
 
-          <div className="flex items-start justify-between mb-6">
-            <div className="flex items-center gap-4">
-              <div className="w-12 h-12 bg-primary-500/20 flex items-center justify-center border border-primary-500/30">
-                <Zap className="w-6 h-6 text-primary-400" />
-              </div>
-              <div>
-                <h3 className="text-2xl font-display text-white uppercase tracking-wider">Pro Extract</h3>
-                <p className="text-sm font-mono text-foreground/50">Everything you need to scale</p>
-              </div>
-            </div>
-            <div className="bg-primary-500 text-white text-xs font-bold px-3 py-1 font-mono border border-primary-400 shadow-glow uppercase tracking-widest shrink-0">
-              Most Popular
-            </div>
-          </div>
-
-          <div className="mb-8 flex items-baseline gap-2">
-            <span className="text-5xl font-extrabold text-white">$49</span>
-            <span className="text-lg text-zinc-400 font-medium">/month</span>
-          </div>
-
-          <ul className="space-y-4 mb-10 flex-1">
-            {[
-              "Unlimited B2B Searches",
-              "High-speed Concurrency (10x)",
-              "Export to CSV & JSON",
-              "Priority 24/7 Support",
-              "Automated Data Enrichment"
-            ].map((feature, i) => (
-              <li key={i} className="flex items-start gap-3 text-zinc-300">
-                <div className="mt-1 rounded-full bg-indigo-500/20 p-1 ring-1 ring-indigo-500/30">
-                  <Check className="w-3 h-3 text-indigo-400 shrink-0" />
-                </div>
-                <span className="font-medium text-sm">{feature}</span>
-              </li>
-            ))}
-          </ul>
-
-          <button
-            onClick={handleSubscribe}
-            disabled={isLoading || !orgId}
-            className="relative w-full py-4 rounded-xl bg-white text-zinc-950 font-bold text-lg hover:bg-zinc-200 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 group overflow-hidden"
-          >
-            <div className="absolute inset-0 bg-gradient-to-r from-indigo-100 via-white to-indigo-100 opacity-0 group-hover:opacity-100 group-hover:animate-pulse transition-opacity" />
-            <span className="relative z-10 flex items-center gap-2">
-              {isLoading ? (
-                "Redirecting to Stripe..."
-              ) : (
-                <>
-                  <CreditCard className="w-5 h-5" />
-                  Subscribe Now
-                </>
-              )}
-            </span>
-          </button>
-        </div>
-
-        {/* Enterprise Plan */}
-        <div className="panel border-border transition-colors duration-500 hover:border-foreground/30 flex flex-col p-8 sm:p-10 relative">
-          <div className="flex items-center gap-4 mb-6">
-            <div className="w-12 h-12 bg-surface-hover flex items-center justify-center border border-border">
-              <ShieldCheck className="w-6 h-6 text-foreground/70" />
-            </div>
-            <div>
-              <h3 className="text-2xl font-display text-white uppercase tracking-wider">Enterprise</h3>
-              <p className="text-sm font-mono text-foreground/50">Custom tailored solutions</p>
-            </div>
-          </div>
-
-          <div className="mb-8 flex items-baseline gap-2">
-            <span className="text-5xl font-extrabold text-white">Custom</span>
-          </div>
-
-          <ul className="space-y-4 mb-10 flex-1">
-            {[
-              "Dedicated Server Infrastructure",
-              "Bypass Rate Limits",
-              "Custom Data Formatting",
-              "Dedicated Account Manager",
-              "99.9% Uptime SLA Guarantee"
-            ].map((feature, i) => (
-              <li key={i} className="flex items-start gap-3 text-foreground/70">
-                <div className="mt-1 bg-surface-hover p-1 border border-border">
-                  <Check className="w-3 h-3 text-foreground/50 shrink-0" />
-                </div>
-                <span className="font-mono text-sm">{feature}</span>
-              </li>
-            ))}
-          </ul>
-
-          <button className="w-full py-4 bg-surface text-white font-mono uppercase tracking-wider font-bold text-lg border border-border hover:bg-surface-hover transition-all shadow-none">
-            Contact Sales
-          </button>
-        </div>
+        <PriceTier
+          name="Enterprise"
+          price="Custom"
+          description="Custom tailored solutions for larger agencies"
+          features={ENTERPRISE_FEATURES}
+          featured={false}
+          ctaText="Contact sales"
+          ctaHref="mailto:sales@insightscraper.com"
+        />
       </div>
 
-      {/* Footer Features */}
-      <div className="grid grid-cols-3 gap-6 pt-12 border-t border-white/5 mt-12 text-center text-sm text-zinc-500">
-        <div className="flex flex-col items-center gap-2">
-          <div className="w-10 h-10 rounded-full bg-white/5 flex items-center justify-center mb-2">
-            <svg className="w-5 h-5 text-zinc-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg>
-          </div>
-          <span className="font-medium text-zinc-300">Secure Payments</span>
-          <span>Powered by Stripe</span>
+      {/* Footer Notes */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 pt-8 border-t border-border text-center text-xs text-foreground/60">
+        <div className="flex flex-col items-center gap-1.5">
+          <span className="font-medium text-white">Secure payments</span>
+          <span>Processed by Stripe</span>
         </div>
-        <div className="flex flex-col items-center gap-2">
-          <div className="w-10 h-10 rounded-full bg-white/5 flex items-center justify-center mb-2">
-            <svg className="w-5 h-5 text-zinc-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
-          </div>
-          <span className="font-medium text-zinc-300">Cancel Anytime</span>
+        <div className="flex flex-col items-center gap-1.5">
+          <span className="font-medium text-white">Cancel anytime</span>
           <span>No hidden fees</span>
         </div>
-        <div className="flex flex-col items-center gap-2">
-          <div className="w-10 h-10 rounded-full bg-white/5 flex items-center justify-center mb-2">
-            <svg className="w-5 h-5 text-zinc-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
-          </div>
-          <span className="font-medium text-zinc-300">Instant Access</span>
-          <span>Start immediately</span>
+        <div className="flex flex-col items-center gap-1.5">
+          <span className="font-medium text-white">Instant access</span>
+          <span>Account activated immediately</span>
         </div>
       </div>
     </div>
-  );
-}
-
-function SparklesIcon(props: React.SVGProps<SVGSVGElement>) {
-  return (
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" {...props}>
-      <path d="M11.64 5.25a.75.75 0 0 0-1.28 0l-1.58 3.55a.75.75 0 0 1-.41.41l-3.55 1.58a.75.75 0 0 0 0 1.28l3.55 1.58a.75.75 0 0 1 .41.41l1.58 3.55a.75.75 0 0 0 1.28 0l1.58-3.55a.75.75 0 0 1 .41-.41l3.55-1.58a.75.75 0 0 0 0-1.28l-3.55-1.58a.75.75 0 0 1-.41-.41l-1.58-3.55Z" />
-    </svg>
   );
 }

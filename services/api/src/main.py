@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 from models import Lead, SearchHistory
 import stripe_service
 
-app = FastAPI(title="Foundry-SaaS API - International Lead & Signal Engine")
+app = FastAPI(title="Insight Scraper API")
 
 app.add_middleware(
     CORSMiddleware,

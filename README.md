@@ -1,4 +1,4 @@
-# Foundry-SaaS
+# Insight Scraper
 
 [![Next.js](https://img.shields.io/badge/Next.js-15-black.svg)](https://nextjs.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.100+-009688.svg)](https://fastapi.tiangolo.com/)
@@ -7,7 +7,7 @@
 [![Stripe](https://img.shields.io/badge/Billing-Stripe-635BFF.svg)](https://stripe.com/)
 [![Docker](https://img.shields.io/badge/Docker-Compose-2496ED.svg)](https://docker.com/)
 
-Foundry-SaaS is a professional, multi-tenant B2B platform designed to extract, manage, and monetize high-value business leads from online directories. Originally built as a standalone local tool (Insight Scraper), it has been completely re-architected into a highly scalable, containerized cloud application featuring strict data isolation, subscription-based billing, and an enterprise-grade API layer.
+Insight Scraper is a professional, multi-tenant B2B platform designed to extract, manage, and monetize high-value business leads from online directories. Originally built as a standalone local tool (Insight Scraper), it has been completely re-architected into a highly scalable, containerized cloud application featuring strict data isolation, subscription-based billing, and an enterprise-grade API layer.
 
 ---
 
@@ -24,7 +24,7 @@ Foundry-SaaS is a professional, multi-tenant B2B platform designed to extract, m
 
 ## 🏗️ Architecture
 
-Foundry-SaaS utilizes a monorepo structure separating the presentation layer from the core business and scraping logic. The entire stack is orchestrated via Docker Compose for complete local parity with production.
+Insight Scraper utilizes a monorepo structure separating the presentation layer from the core business and scraping logic. The entire stack is orchestrated via Docker Compose for complete local parity with production.
 
 ### Technology Stack
 - **Frontend:** Next.js (App Router), React, Tailwind CSS, Lucide Icons
@@ -39,7 +39,7 @@ Foundry-SaaS utilizes a monorepo structure separating the presentation layer fro
 ## 📂 Project Structure
 
 ```text
-foundry-saas/
+insight-scraper/
 ├── apps/
 │   └── dashboard/                # Next.js App Router (Frontend)
 │       ├── package.json
@@ -66,7 +66,7 @@ foundry-saas/
 
 ## 🚀 Getting Started
 
-The easiest way to run Foundry-SaaS locally is by using Docker Compose.
+The easiest way to run Insight Scraper locally is by using Docker Compose.
 
 ### Prerequisites
 - [Docker & Docker Compose](https://www.docker.com/)
@@ -128,7 +128,7 @@ This application uses a strict security model to ensure B2B data integrity:
 
 ## 🚢 Deployment
 
-Foundry-SaaS is designed to be cloud-native and easily deployable using modern Platform as a Service (PaaS) providers.
+Insight Scraper is designed to be cloud-native and easily deployable using modern Platform as a Service (PaaS) providers.
 
 ### Frontend Deployment (Vercel)
 The Next.js dashboard is optimized for seamless deployment on Vercel:

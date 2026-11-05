@@ -1,6 +1,6 @@
-# Contributing to Foundry-SaaS
+# Contributing to Insight Scraper
 
-First off, thank you for considering contributing to Foundry-SaaS. It's people like you that make Foundry-SaaS such a great tool.
+First off, thank you for considering contributing to Insight Scraper. It's people like you that make Insight Scraper such a great tool.
 
 ## 1. Where do I go from here?
 
@@ -8,7 +8,7 @@ If you've noticed a bug or have a feature request, make one! It's generally best
 
 ## 2. Fork & create a branch
 
-If this is something you think you can fix, then fork Foundry-SaaS and create a branch with a descriptive name.
+If this is something you think you can fix, then fork Insight Scraper and create a branch with a descriptive name.
 
 A good branch name would be (where issue #325 is the ticket you're working on):
 
@@ -26,7 +26,7 @@ At this point, you're ready to make your changes. Feel free to ask for help; eve
 
 ## 5. Make a Pull Request
 
-At this point, you should switch back to your master branch and make sure it's up to date with Foundry-SaaS's master branch:
+At this point, you should switch back to your master branch and make sure it's up to date with Insight Scraper's master branch:
 
 ```sh
 git remote add upstream git@github.com:BradleyXiX/Insight-Scraper.git
