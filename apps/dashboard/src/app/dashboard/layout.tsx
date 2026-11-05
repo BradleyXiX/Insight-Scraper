@@ -3,6 +3,7 @@
 import { UserButton, OrganizationSwitcher } from "@clerk/nextjs";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { Logo } from "@/components/Logo";
 import { LayoutDashboard, Search, History, Settings, Database, CreditCard, Sparkles } from "lucide-react";
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
@@ -22,12 +23,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       {/* Sidebar */}
       <aside className="w-64 border-r border-border bg-surface flex flex-col relative overflow-hidden shrink-0">
         <div className="h-16 flex items-center px-6 border-b border-border gap-3 bg-surface">
-          <div className="w-8 h-8 bg-primary-600 flex items-center justify-center border border-primary-500 shadow-glow">
-            <Database className="w-4 h-4 text-white" />
-          </div>
-          <span className="font-display font-bold text-white uppercase tracking-widest text-sm">
-            Foundry-SaaS
-          </span>
+          <Logo size={28} />
         </div>
         
         <div className="p-4 flex-1 flex flex-col gap-8">

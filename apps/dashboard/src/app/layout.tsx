@@ -15,7 +15,17 @@ const jetbrainsMono = JetBrains_Mono({
 
 export const metadata: Metadata = {
   title: "Insight Scraper",
-  description: "Extract leads dynamically.",
+  description: "Every lead on the page, with the pitch already written.",
+  openGraph: {
+    title: "Insight Scraper",
+    description: "Every lead on the page, with the pitch already written.",
+    type: "website",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "Insight Scraper",
+    description: "Every lead on the page, with the pitch already written.",
+  },
 };
 
 export default function RootLayout({

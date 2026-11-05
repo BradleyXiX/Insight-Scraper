@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { ArrowRight, Database, Shield, Zap } from "lucide-react";
 import HeroScene from "@/components/HeroScene";
+import { Logo } from "@/components/Logo";
 
 export default function Home() {
   return (
@@ -10,12 +11,7 @@ export default function Home() {
       
       {/* Navigation */}
       <nav className="relative z-10 flex items-center justify-between px-8 py-6 w-full max-w-7xl mx-auto border-b border-border bg-surface/80 backdrop-blur-md">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 bg-primary-600 flex items-center justify-center border border-primary-500 shadow-glow">
-            <Database className="w-5 h-5 text-white" />
-          </div>
-          <span className="text-xl font-display font-bold uppercase tracking-widest text-white">Foundry-SaaS</span>
-        </div>
+        <Logo />
         <div className="flex items-center gap-6">
           <Link href="/sign-in" className="text-sm font-mono font-bold uppercase tracking-widest text-foreground/70 hover:text-primary-400 transition-colors">
             Auth
@@ -39,7 +35,7 @@ export default function Home() {
         </h1>
         
         <p className="max-w-2xl text-lg md:text-xl font-mono text-foreground/70 mb-12 pointer-events-auto">
-          Automate your prospecting workflow. Foundry-SaaS extracts, enriches, and organizes B2B directory data with unparalleled accuracy and scale.
+          Automate your prospecting workflow. Insight Scraper extracts, enriches, and organizes B2B directory data with unparalleled accuracy and scale.
         </p>
 
         <div className="flex flex-col sm:flex-row items-center gap-6 pointer-events-auto w-fit">
