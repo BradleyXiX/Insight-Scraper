@@ -212,8 +212,8 @@ export default function DashboardPage() {
     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
       <div className="flex flex-col gap-2">
         <div className="flex items-center gap-3">
-          <h1 className="text-3xl font-display text-white">International Lead & Signal Scraper</h1>
-          <span className="px-2.5 py-0.5 text-xs font-mono font-bold bg-primary-500/20 text-primary-400 border border-primary-500/40 uppercase">
+          <h1 className="heading-4 text-foreground">International lead and signal scraper</h1>
+          <span className="px-2.5 py-0.5 text-xs font-mono font-bold bg-accent-quiet text-accent border border-accent/40 uppercase">
             Global Multi Source
           </span>
         </div>
@@ -249,7 +249,7 @@ export default function DashboardPage() {
             <select
               value={region}
               onChange={(e) => setRegion(e.target.value)}
-              className="w-full bg-surface border border-border rounded-none py-3 pl-4 pr-10 text-white focus:outline-none focus:border-primary-500 font-mono text-sm cursor-pointer appearance-none"
+              className="w-full bg-surface border border-border rounded-none py-3 pl-4 pr-10 text-white focus:outline-none focus:border-accent font-mono text-sm cursor-pointer appearance-none"
               aria-label="Target Region"
             >
               {REGION_OPTIONS.map((opt) => (
@@ -268,7 +268,7 @@ export default function DashboardPage() {
             <select
               value={source}
               onChange={(e) => setSource(e.target.value)}
-              className="w-full bg-surface border border-border rounded-none py-3 pl-4 pr-10 text-white focus:outline-none focus:border-primary-500 font-mono text-sm cursor-pointer appearance-none"
+              className="w-full bg-surface border border-border rounded-none py-3 pl-4 pr-10 text-white focus:outline-none focus:border-accent font-mono text-sm cursor-pointer appearance-none"
               aria-label="Scraping Source"
             >
               {SOURCE_OPTIONS.map((opt) => (
@@ -290,7 +290,7 @@ export default function DashboardPage() {
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder="e.g. medspas in Austin TX, dentists in London, cafes in Sydney" 
-              className="w-full bg-surface border border-border rounded-none py-3 pl-12 pr-4 text-white placeholder:text-foreground/40 focus:outline-none focus:border-primary-500 focus:ring-1 focus:ring-primary-500 transition-colors font-mono"
+              className="w-full bg-surface border border-border rounded-none py-3 pl-12 pr-4 text-white placeholder:text-foreground/40 focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent transition-colors font-mono"
             />
           </div>
 
@@ -299,7 +299,7 @@ export default function DashboardPage() {
             <button 
               type="submit"
               disabled={isRunning || !query.trim()}
-              className="flex items-center justify-center gap-2 bg-primary-600 text-white px-7 py-3 rounded-none font-medium hover:bg-primary-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors uppercase tracking-wider text-sm whitespace-nowrap w-full md:w-44"
+              className="flex items-center justify-center gap-2 bg-white text-black px-7 py-3 rounded-none font-semibold hover:bg-zinc-200 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm whitespace-nowrap w-full md:w-44"
             >
               {isRunning ? (
                 <span className="flex items-center gap-2">
@@ -337,7 +337,7 @@ export default function DashboardPage() {
         
         {/* Helper Note */}
         <div className="flex items-center gap-2 text-sm text-foreground/50">
-          <AlertCircle className="w-4 h-4 text-primary-400" />
+          <AlertCircle className="w-4 h-4 text-accent" />
           <p>
             Supports US, UK, Australia, Canada, UAE, and Kenya. Playwright rotates stealth profiles, audits mobile PageSpeed signals, and detects Intercom, Drift, Tidio, & Botpress widgets.
           </p>
@@ -351,7 +351,7 @@ export default function DashboardPage() {
       <div className="space-y-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <h2 className="text-xl font-display text-white">Extracted Leads</h2>
+            <h2 className="heading-6 text-foreground">Extracted leads</h2>
             <span className="px-2 py-0.5 text-xs font-mono bg-surface border border-border text-foreground/70">
               {leads.length} found
             </span>
