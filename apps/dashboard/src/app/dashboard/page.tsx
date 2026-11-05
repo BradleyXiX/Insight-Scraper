@@ -1,11 +1,12 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { Search, Download, AlertCircle, Play, Globe, Bot, Zap, CheckCircle, ExternalLink, ChevronDown } from "lucide-react";
+import { useState, useEffect, useRef, useCallback } from "react";
+import { Search, Download, AlertCircle, Play, ExternalLink, ChevronDown, Bot, Zap, CheckCircle } from "lucide-react";
 import { useAuth } from "@clerk/nextjs";
 import { getApiUrl } from "@/lib/api";
-import { LeadItem, getPitchHook, getMobileLoadMs, getHasChatbot } from "@/lib/leads";
-
+import { LeadItem, getPitchHook, getMobileLoadMs, getHasChatbot, toCsv } from "@/lib/leads";
+import { KpiStrip } from "@/components/KpiStrip";
+import { ScrapeStatus, ScrapeState } from "@/components/ScrapeStatus";
 
 const REGION_OPTIONS = [
   { value: "US", label: "🇺🇸 USA" },
@@ -23,104 +24,54 @@ const SOURCE_OPTIONS = [
 ];
 
 export default function DashboardPage() {
-  const { getToken, orgId } = useAuth();
+  const { getToken } = useAuth();
   const [query, setQuery] = useState("");
   const [region, setRegion] = useState("US");
   const [source, setSource] = useState("gmaps");
-  const [isScraping, setIsScraping] = useState(false);
-  
+  const [scrapeState, setScrapeState] = useState<ScrapeState>({ phase: "idle" });
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [leads, setLeads] = useState<LeadItem[]>([]);
+  const abortControllerRef = useRef<AbortController | null>(null);
   const apiUrl = getApiUrl();
 
-
-
-
   // Fetch initial leads on load
-  useEffect(() => {
-    const fetchExistingLeads = async () => {
+  const fetchExistingLeads = useCallback(async () => {
+    setLoadError(null);
+    try {
+      let token = null;
       try {
-        let token = null;
-        try {
-          token = await getToken();
-        } catch {
-          // Dev bypass mode when Clerk is unauthenticated
-        }
-        const headers: Record<string, string> = {};
-        if (token) {
-          headers["Authorization"] = `Bearer ${token}`;
-        } else {
-          headers["Authorization"] = "Bearer dev_bypass_token";
-        }
-
-        const res = await fetch(`${apiUrl}/api/leads`, { headers });
-        if (res.ok) {
-          const data = await res.json();
-          if (Array.isArray(data)) {
-            setLeads(data);
-          }
-        }
-      } catch (err) {
-        console.warn("Could not load initial leads:", err);
+        token = await getToken();
+      } catch {
+        // Dev bypass mode when Clerk is unauthenticated
       }
-    };
+      const headers: Record<string, string> = {};
+      if (token) {
+        headers["Authorization"] = `Bearer ${token}`;
+      } else {
+        headers["Authorization"] = "Bearer dev_bypass_token";
+      }
 
-    fetchExistingLeads();
+      const res = await fetch(`${apiUrl}/api/leads`, { headers });
+      if (!res.ok) {
+        throw new Error("Failed to load initial leads");
+      }
+      const data = await res.json();
+      if (Array.isArray(data)) {
+        setLeads(data);
+      }
+    } catch {
+      setLoadError("Could not reach the extraction service. Check that the backend is running, then try again.");
+    }
   }, [apiUrl, getToken]);
 
+  useEffect(() => {
+    fetchExistingLeads();
+  }, [fetchExistingLeads]);
+
   const handleExportCSV = () => {
-    if (!leads || leads.length === 0) {
-      alert("No leads available to export.");
-      return;
-    }
+    if (!leads || leads.length === 0) return;
 
-    const headers = [
-      "Business Name",
-      "Phone",
-      "Website",
-      "Email",
-      "Socials",
-      "Region",
-      "Has_Chatbot_Widget",
-      "Mobile_Load_Ms",
-      "Pitch_Hook",
-      "Contact Details",
-      "Search Query",
-      "Extracted At"
-    ];
-
-    const rows = leads.map((lead) => {
-      const name = lead.business_name || lead["Business Name"] || lead.name || "Unknown Business";
-      const phone = lead.phone || lead["Phone"] || lead.contact || lead["Contact"] || "Hidden";
-      const website = lead.website || lead["Website"] || "";
-      const email = lead.email || lead["Email"] || "";
-      const socials = lead.socials || lead["Socials"] || "";
-      const reg = lead.region || lead["Region"] || region;
-      const hasChatbot = getHasChatbot(lead);
-      const mobileLoadMs = getMobileLoadMs(lead);
-      const pitchHook = getPitchHook(lead);
-      const contact = lead.contact || lead["Contact"] || phone;
-      const searchQuery = lead.query || lead.search_query || lead["Search Query"] || query;
-      const createdAt = lead.created_at || new Date().toISOString();
-
-      return [
-        name,
-        phone,
-        website,
-        email,
-        socials,
-        reg,
-        hasChatbot ? "TRUE" : "FALSE",
-        mobileLoadMs,
-        pitchHook,
-        contact,
-        searchQuery,
-        createdAt
-      ]
-        .map((field) => `"${String(field ?? "").replace(/"/g, '""')}"`)
-        .join(",");
-    });
-
-    const csvContent = [headers.join(","), ...rows].join("\r\n");
+    const csvContent = toCsv(leads, { region, query });
     const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
@@ -132,12 +83,27 @@ export default function DashboardPage() {
     URL.revokeObjectURL(url);
   };
 
-  const handleScrape = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleCancelScrape = () => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+    }
+    setScrapeState({ phase: "idle" });
+  };
+
+  const handleScrape = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
     if (!query.trim()) return;
-    
-    setIsScraping(true);
-    
+    if (scrapeState.phase === "running") return;
+
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
+    setScrapeState({ phase: "running", startedAt: Date.now() });
+
     try {
       let token = null;
       try {
@@ -152,46 +118,94 @@ export default function DashboardPage() {
       } else {
         headers["Authorization"] = "Bearer dev_bypass_token";
       }
-      
+
       const scrapeParams = new URLSearchParams({
         query: query.trim(),
         region: region,
         source: source,
-        limit: "25"
+        limit: "25",
       });
 
       const res = await fetch(`${apiUrl}/api/scrape?${scrapeParams.toString()}`, {
         method: "POST",
-        headers
+        headers,
+        signal: controller.signal,
       });
-      
-      if (!res.ok) {
-        const err = await res.text();
-        throw new Error(err);
-      }
-      
-      const data = await res.json();
 
-      // If backend returned leads array directly in data.leads, update immediately
-      if (data && Array.isArray(data.leads) && data.leads.length > 0) {
-        setLeads(data.leads);
-      }
-      
-      // Fetch the updated list of leads from the database
-      const leadsRes = await fetch(`${apiUrl}/api/leads`, { headers });
-      if (leadsRes.ok) {
-        const leadsData = await leadsRes.json();
-        if (Array.isArray(leadsData) && leadsData.length > 0) {
-          setLeads(leadsData);
+      if (!res.ok) {
+        if (res.status === 402) {
+          setScrapeState({
+            phase: "error",
+            message: "Your subscription is not active. Open Billing to choose a plan.",
+          });
+          return;
         }
+        if (res.status === 403) {
+          setScrapeState({
+            phase: "error",
+            message: "You do not have access to this workspace.",
+          });
+          return;
+        }
+        if (res.status >= 500) {
+          setScrapeState({
+            phase: "error",
+            message: "Could not reach the extraction service. Check that the backend is running, then try again.",
+          });
+          return;
+        }
+        setScrapeState({
+          phase: "error",
+          message: "Extraction failed. Try a different query or region.",
+        });
+        return;
       }
-    } catch (error) {
-      console.error(error);
-      alert("Failed to scrape leads: " + error);
+
+      const data = await res.json();
+      let newLeads: LeadItem[] = [];
+      if (data && Array.isArray(data.leads)) {
+        newLeads = data.leads;
+      }
+
+      // Fetch the updated list of leads from the database
+      try {
+        const leadsRes = await fetch(`${apiUrl}/api/leads`, {
+          headers,
+          signal: controller.signal,
+        });
+        if (leadsRes.ok) {
+          const leadsData = await leadsRes.json();
+          if (Array.isArray(leadsData) && leadsData.length > 0) {
+            newLeads = leadsData;
+          }
+        }
+      } catch {
+        // Keep leads from scrape response
+      }
+
+      setLeads(newLeads);
+
+      if (newLeads.length > 0) {
+        setScrapeState({ phase: "done", count: newLeads.length });
+      } else {
+        setScrapeState({ phase: "empty" });
+      }
+    } catch {
+      if (controller.signal.aborted) {
+        return;
+      }
+      setScrapeState({
+        phase: "error",
+        message: "Could not reach the extraction service. Check that the backend is running, then try again.",
+      });
     } finally {
-      setIsScraping(false);
+      if (abortControllerRef.current === controller) {
+        abortControllerRef.current = null;
+      }
     }
   };
+
+  const isRunning = scrapeState.phase === "running";
 
   return (
     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
@@ -199,7 +213,7 @@ export default function DashboardPage() {
         <div className="flex items-center gap-3">
           <h1 className="text-3xl font-display text-white">International Lead & Signal Scraper</h1>
           <span className="px-2.5 py-0.5 text-xs font-mono font-bold bg-primary-500/20 text-primary-400 border border-primary-500/40 uppercase">
-            Global Multi-Source
+            Global Multi Source
           </span>
         </div>
         <p className="text-foreground/70">
@@ -207,11 +221,30 @@ export default function DashboardPage() {
         </p>
       </div>
 
+      {/* Initial Load Error Panel */}
+      {loadError && (
+        <div className="panel p-4 bg-surface border border-danger/40 flex items-center justify-between text-sm">
+          <div className="flex items-center gap-3">
+            <span className="w-2 h-2 bg-danger inline-block" aria-hidden="true" />
+            <p className="text-danger font-mono text-xs">
+              {loadError}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={fetchExistingLeads}
+            className="text-xs font-mono uppercase tracking-wider px-3 py-1 bg-surface border border-border text-white hover:border-foreground/50 cursor-pointer transition-colors"
+          >
+            Try again
+          </button>
+        </div>
+      )}
+
       {/* Action Bar */}
-      <div className="panel p-6">
+      <div className="panel p-6 space-y-4">
         <form onSubmit={handleScrape} className="flex flex-col md:flex-row gap-3">
           {/* Target Region Dropdown */}
-          <div className="relative min-w-[160px]">
+          <div className="relative w-full md:w-40">
             <select
               value={region}
               onChange={(e) => setRegion(e.target.value)}
@@ -230,7 +263,7 @@ export default function DashboardPage() {
           </div>
 
           {/* Source Dropdown */}
-          <div className="relative min-w-[190px]">
+          <div className="relative w-full md:w-48">
             <select
               value={source}
               onChange={(e) => setSource(e.target.value)}
@@ -256,7 +289,7 @@ export default function DashboardPage() {
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder="e.g. medspas in Austin TX, dentists in London, cafes in Sydney" 
-              className="w-full bg-surface border border-border rounded-none py-3 pl-12 pr-4 text-white placeholder:text-foreground/40 focus:outline-none focus:border-primary-500 focus:ring-1 focus:ring-primary-500 transition-all font-mono"
+              className="w-full bg-surface border border-border rounded-none py-3 pl-12 pr-4 text-white placeholder:text-foreground/40 focus:outline-none focus:border-primary-500 focus:ring-1 focus:ring-primary-500 transition-colors font-mono"
             />
           </div>
 
@@ -264,12 +297,12 @@ export default function DashboardPage() {
           <div className="flex gap-2">
             <button 
               type="submit"
-              disabled={isScraping || !query.trim()}
-              className="flex items-center justify-center gap-2 bg-primary-600 text-white px-7 py-3 rounded-none font-medium hover:bg-primary-500 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-glow uppercase tracking-wider text-sm whitespace-nowrap min-w-[170px]"
+              disabled={isRunning || !query.trim()}
+              className="flex items-center justify-center gap-2 bg-primary-600 text-white px-7 py-3 rounded-none font-medium hover:bg-primary-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors uppercase tracking-wider text-sm whitespace-nowrap w-full md:w-44"
             >
-              {isScraping ? (
+              {isRunning ? (
                 <span className="flex items-center gap-2">
-                  <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                  <span className="w-2 h-2 bg-accent motion-safe:animate-pulse inline-block" />
                   Extracting...
                 </span>
               ) : (
@@ -280,12 +313,12 @@ export default function DashboardPage() {
               )}
             </button>
 
-            {/* Line 97 Export CSV Button in Action Bar */}
+            {/* Export CSV Button in Action Bar */}
             <button 
               type="button"
               onClick={handleExportCSV}
               disabled={leads.length === 0}
-              className="flex items-center justify-center gap-2 bg-surface border border-border text-foreground hover:text-white hover:border-foreground/40 px-5 py-3 rounded-none font-medium disabled:opacity-40 disabled:cursor-not-allowed transition-all uppercase tracking-wider text-sm whitespace-nowrap"
+              className="flex items-center justify-center gap-2 bg-surface border border-border text-foreground hover:text-white hover:border-foreground/40 px-5 py-3 rounded-none font-medium disabled:opacity-40 disabled:cursor-not-allowed transition-colors uppercase tracking-wider text-sm whitespace-nowrap"
               title="Export all scraped leads to CSV"
             >
               <Download className="w-4 h-4" />
@@ -293,15 +326,25 @@ export default function DashboardPage() {
             </button>
           </div>
         </form>
+
+        {/* ScrapeStatus Mount */}
+        <ScrapeStatus
+          state={scrapeState}
+          onCancel={handleCancelScrape}
+          onRetry={() => handleScrape()}
+        />
         
         {/* Helper Note */}
-        <div className="flex items-center gap-2 mt-4 text-sm text-foreground/50">
+        <div className="flex items-center gap-2 text-sm text-foreground/50">
           <AlertCircle className="w-4 h-4 text-primary-400" />
           <p>
             Supports US, UK, Australia, Canada, UAE, and Kenya. Playwright rotates stealth profiles, audits mobile PageSpeed signals, and detects Intercom, Drift, Tidio, & Botpress widgets.
           </p>
         </div>
       </div>
+
+      {/* KPI Strip */}
+      <KpiStrip leads={leads} />
 
       {/* Results Table */}
       <div className="space-y-4">
