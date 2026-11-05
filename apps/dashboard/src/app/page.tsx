@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { ArrowRight, Database, Shield, Zap } from "lucide-react";
 import { Logo } from "@/components/Logo";
+import { ExtractionDemo } from "@/components/ExtractionDemo";
 
 export default function Home() {
   return (
@@ -19,7 +20,7 @@ export default function Home() {
       </nav>
 
       {/* Hero Section */}
-      <main className="relative z-10 w-full max-w-7xl mx-auto px-8 pt-24 pb-24 flex-1 flex flex-col justify-center pointer-events-none">
+      <main className="relative z-10 w-full max-w-7xl mx-auto px-8 pt-24 pb-24 flex-1 flex flex-col justify-center">
         <div className="inline-flex items-center gap-3 px-4 py-1.5 bg-primary-500/10 border border-primary-500/50 text-primary-400 text-xs font-mono font-bold uppercase tracking-widest mb-12 shadow-glow w-fit">
           <span className="w-2 h-2 bg-primary-400 animate-pulse"></span>
           Enterprise B2B Extraction Engine Active
@@ -30,17 +31,22 @@ export default function Home() {
           <span className="text-primary-400">Business Leads.</span>
         </h1>
         
-        <p className="max-w-2xl text-lg md:text-xl font-mono text-foreground/70 mb-12 pointer-events-auto">
+        <p className="max-w-2xl text-lg md:text-xl font-mono text-foreground/70 mb-12">
           Automate your prospecting workflow. Insight Scraper extracts, enriches, and organizes B2B directory data with unparalleled accuracy and scale.
         </p>
 
-        <div className="flex flex-col sm:flex-row items-center gap-6 pointer-events-auto w-fit">
+        <div className="flex flex-col sm:flex-row items-center gap-6 w-fit mb-16">
           <Link href="/sign-up" className="flex items-center gap-3 px-8 py-5 bg-primary-600 text-white font-mono font-bold uppercase tracking-widest text-sm border border-primary-400 shadow-glow hover:bg-primary-500 transition-all">
             Initialize Sequence <ArrowRight className="w-5 h-5" />
           </Link>
           <Link href="#features" className="flex items-center gap-3 px-8 py-5 bg-surface text-foreground/70 font-mono font-bold uppercase tracking-widest text-sm border border-border hover:bg-surface-hover hover:text-white transition-all">
             View Schematics
           </Link>
+        </div>
+
+        {/* Demo showcase in hero slot over dot-grid background */}
+        <div className="w-full dot-grid p-4 sm:p-6 lg:p-8 border border-border bg-surface/30">
+          <ExtractionDemo variant="hero" />
         </div>
       </main>
 
