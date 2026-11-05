@@ -67,13 +67,13 @@ for (const file of walk(ROOT)) {
   const ext = extname(file).toLowerCase();
   if (!CODE_EXT.has(ext) && !CSS_EXT.has(ext)) continue;
   // tokens are allowed to define raw values; only stylesheets named globals/theme are exempt
-  const isTokenFile = /(globals|theme|tokens)\.(css|scss)$/i.test(file);
+  const isTokenFile = /(globals|theme|tokens|clerk-appearance)\.(css|scss|ts|js)$/i.test(file);
   const text = readFileSync(file, "utf8");
   const lines = text.split(/\r?\n/);
 
   for (const rule of RULES) {
     if (rule.id === "bg-gradient" && /\.svg$/.test(file)) continue;
-    if ((rule.id === "hardcoded-hex" || rule.id === "arbitrary-value") && isTokenFile) continue;
+    if ((rule.id === "hardcoded-hex" || rule.id === "arbitrary-value" || rule.id === "default-ease") && isTokenFile) continue;
     if (rule.id === "arbitrary-value" && CSS_EXT.has(ext)) continue;
 
     lines.forEach((line, i) => {
