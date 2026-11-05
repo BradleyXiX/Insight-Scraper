@@ -7,7 +7,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "lint:design": "node ../../scripts/design-lint.mjs src"
+    "lint:design": "node ../../scripts/design-lint.mjs src",
+    "test": "node --test src/lib"
   },
   "dependencies": {
     "@clerk/nextjs": "^7.3.5",

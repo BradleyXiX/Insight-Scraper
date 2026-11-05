@@ -4,41 +4,8 @@ import { useState, useEffect } from "react";
 import { Search, Download, AlertCircle, Play, Globe, Bot, Zap, CheckCircle, ExternalLink, ChevronDown } from "lucide-react";
 import { useAuth } from "@clerk/nextjs";
 import { getApiUrl } from "@/lib/api";
+import { LeadItem, getPitchHook, getMobileLoadMs, getHasChatbot } from "@/lib/leads";
 
-interface LeadItem {
-  id?: number | string;
-  business_name?: string;
-  name?: string;
-  "Business Name"?: string;
-  contact?: string;
-  "Contact"?: string;
-  phone?: string;
-  "Phone"?: string;
-  email?: string;
-  "Email"?: string;
-  socials?: string;
-  "Socials"?: string;
-  website?: string;
-  "Website"?: string;
-  region?: string;
-  "Region"?: string;
-  has_chatbot_widget?: boolean;
-  "Has_Chatbot_Widget"?: boolean;
-  mobile_load_ms?: number;
-  "Mobile_Load_Ms"?: number;
-  mobile_load_time?: string;
-  "Mobile Load Time"?: string;
-  pagespeed_score?: string;
-  "PageSpeed Score"?: string;
-  pitch?: string;
-  "Pitch"?: string;
-  pitch_hook?: string;
-  "Pitch_Hook"?: string;
-  query?: string;
-  search_query?: string;
-  "Search Query"?: string;
-  created_at?: string;
-}
 
 const REGION_OPTIONS = [
   { value: "US", label: "🇺🇸 USA" },
@@ -65,36 +32,8 @@ export default function DashboardPage() {
   const [leads, setLeads] = useState<LeadItem[]>([]);
   const apiUrl = getApiUrl();
 
-  // Helper to extract pitch hook according to signal rules
-  const getPitchHook = (lead: LeadItem): string => {
-    if (lead.pitch_hook || lead["Pitch_Hook"]) {
-      return lead.pitch_hook || lead["Pitch_Hook"] || "";
-    }
-    const loadMs = Number(lead.mobile_load_ms ?? lead["Mobile_Load_Ms"] ?? 0);
-    const hasChatbot = Boolean(lead.has_chatbot_widget ?? lead["Has_Chatbot_Widget"] ?? false);
 
-    if (loadMs > 3000) {
-      return "Pitch $750 Speed Overhaul (#2)";
-    }
-    if (!hasChatbot) {
-      return "Pitch $1,000 RAG Bot (#4)";
-    }
-    return "Qualified Enterprise AI Lead";
-  };
 
-  // Helper to get mobile load time in milliseconds
-  const getMobileLoadMs = (lead: LeadItem): number => {
-    if (lead.mobile_load_ms !== undefined) return Number(lead.mobile_load_ms);
-    if (lead["Mobile_Load_Ms"] !== undefined) return Number(lead["Mobile_Load_Ms"]);
-    return 0;
-  };
-
-  // Helper to get chatbot widget status
-  const getHasChatbot = (lead: LeadItem): boolean => {
-    if (lead.has_chatbot_widget !== undefined) return Boolean(lead.has_chatbot_widget);
-    if (lead["Has_Chatbot_Widget"] !== undefined) return Boolean(lead["Has_Chatbot_Widget"]);
-    return false;
-  };
 
   // Fetch initial leads on load
   useEffect(() => {
