@@ -73,7 +73,7 @@ for (const file of walk(ROOT)) {
 
   for (const rule of RULES) {
     if (rule.id === "bg-gradient" && /\.svg$/.test(file)) continue;
-    if ((rule.id === "hardcoded-hex" || rule.id === "arbitrary-value" || rule.id === "default-ease") && isTokenFile) continue;
+    if (rule.id === "hardcoded-hex" && isTokenFile) continue;
     if (rule.id === "arbitrary-value" && CSS_EXT.has(ext)) continue;
 
     lines.forEach((line, i) => {
