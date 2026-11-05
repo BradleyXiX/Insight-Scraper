@@ -1,63 +1,99 @@
 @import "tailwindcss";
 
 @theme {
-  /* Colors - Power-User Brutalism */
-  --color-background: #09090b; /* Obsidian */
-  --color-foreground: #fafafa;
-  --color-surface: #000000;
-  --color-surface-hover: #18181b;
-  --color-border: #27272a; /* Stark slate-gray borders */
+  --color-background: #000000;
+  --color-foreground: #FAFAFA;
+  --color-surface: #181818;
+  --color-surface-hover: #1F1F1F;
+  --color-border: #272727;
+  --color-border-strong: #313131;
 
-  --color-primary-400: #22d3ee; /* Electric Cyan */
-  --color-primary-500: #06b6d4;
-  --color-primary-600: #0891b2;
-  --color-primary-glow: rgba(6, 182, 212, 0.4);
+  --color-accent: #18A9C2;
+  --color-accent-quiet: rgba(24, 169, 194, 0.12);
+  --color-attention: #F59E0B;
+  --color-attention-quiet: rgba(245, 158, 11, 0.10);
+  --color-danger: #F87171;
+  --color-danger-quiet: rgba(248, 113, 113, 0.10);
 
-  --color-success-400: #fcd34d; /* Amber warning/success */
-  --color-success-500: #f59e0b;
-  --color-success-bg: rgba(245, 158, 11, 0.15);
-
-  /* Typography */
   --font-sans: var(--font-geist-sans), sans-serif;
-  --font-display: var(--font-geist-sans), sans-serif;
   --font-mono: var(--font-jetbrains-mono), monospace;
 
-  /* Shadows */
-  --shadow-panel: none;
-  --shadow-glow: 0 0 10px var(--color-primary-glow), 0 0 20px var(--color-primary-glow);
+  --radius-xs: 0px;
+  --radius-sm: 0px;
+  --radius-md: 0px;
+  --radius-lg: 0px;
+  --radius-xl: 0px;
+  --radius-2xl: 0px;
+  --radius-3xl: 0px;
+  --radius-full: 0px;
+
+  --ease-out-expo: cubic-bezier(0.22, 1, 0.36, 1);
+  --duration-move: 500ms;
+  --duration-color: 300ms;
+
+  --shadow-glow: none;
 }
 
 @layer base {
-  /* Enforce Brutalist Hard Corners globally */
-  * {
-    border-radius: 0 !important;
-  }
-
   body {
     background-color: var(--color-background);
     color: var(--color-foreground);
+    font-family: var(--font-sans);
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
-    font-family: var(--font-sans);
   }
 
   h1, h2, h3, h4, h5, h6 {
-    font-family: var(--font-display);
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
+    font-family: var(--font-sans);
+    font-weight: 600;
+    letter-spacing: normal;
+    text-transform: none;
   }
-  
-  /* Apply Mono font to tables for that dense hacker feel */
-  table, pre, code, input, button {
+
+  table, pre, code {
     font-family: var(--font-mono);
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
+  }
+}
+
+@layer components {
+  .heading-1 { @apply text-6xl font-semibold leading-none; }
+  .heading-2 { @apply text-5xl font-semibold leading-none; }
+  .heading-3 { @apply text-4xl font-semibold leading-[40px]; }
+  .heading-4 { @apply text-3xl font-semibold leading-[36px]; }
+  .heading-5 { @apply text-2xl font-semibold leading-[32px]; }
+  .heading-6 { @apply text-xl font-semibold leading-[28px]; }
+
+  .body-3 { @apply text-base font-normal leading-6; }
+  .body-5 { @apply text-sm font-medium leading-5; }
+  .body-6 { @apply text-sm font-normal leading-5; }
+
+  .button-md { @apply text-base font-semibold leading-6; }
+  .button-sm { @apply text-sm font-semibold leading-5; }
+
+  .caption-3 { @apply text-xs font-semibold leading-4; }
+  .caption-4 { @apply text-xs font-medium leading-4; }
+
+  .panel {
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
   }
 }
 
 @layer utilities {
-  .panel {
-    background: var(--color-surface);
-    border: 1px solid var(--color-border);
-    box-shadow: none;
+  .text-gradient-hero {
+    background-image: linear-gradient(90deg, #FFFFFF 0%, #9B9B9B 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+
+  .dot-grid {
+    background-image: radial-gradient(rgba(250, 250, 250, 0.05) 1px, transparent 1px);
+    background-size: 24px 24px;
   }
 }
