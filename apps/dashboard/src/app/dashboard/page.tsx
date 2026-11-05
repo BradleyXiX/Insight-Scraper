@@ -1,12 +1,13 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
-import { Search, Download, AlertCircle, Play, ExternalLink, ChevronDown, Bot, Zap, CheckCircle } from "lucide-react";
+import { Search, Download, AlertCircle, Play, ChevronDown } from "lucide-react";
 import { useAuth } from "@clerk/nextjs";
 import { getApiUrl } from "@/lib/api";
-import { LeadItem, getPitchHook, getMobileLoadMs, getHasChatbot, toCsv } from "@/lib/leads";
+import { LeadItem, toCsv } from "@/lib/leads";
 import { KpiStrip } from "@/components/KpiStrip";
 import { ScrapeStatus, ScrapeState } from "@/components/ScrapeStatus";
+import { LeadResults } from "@/components/LeadResults";
 
 const REGION_OPTIONS = [
   { value: "US", label: "🇺🇸 USA" },
@@ -346,7 +347,7 @@ export default function DashboardPage() {
       {/* KPI Strip */}
       <KpiStrip leads={leads} />
 
-      {/* Results Table */}
+      {/* Results Section */}
       <div className="space-y-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
@@ -366,135 +367,7 @@ export default function DashboardPage() {
           </button>
         </div>
         
-        <div className="panel overflow-x-auto">
-          <table className="w-full text-sm text-left">
-            <thead className="text-xs text-foreground/50 uppercase bg-surface border-b border-border">
-              <tr>
-                <th className="px-5 py-4 font-medium">Business Name</th>
-                <th className="px-5 py-4 font-medium">Contact & Phone</th>
-                <th className="px-5 py-4 font-medium">Website</th>
-                <th className="px-4 py-4 font-medium text-center">Mobile Load</th>
-                <th className="px-4 py-4 font-medium text-center">Chatbot</th>
-                <th className="px-5 py-4 font-medium">Pitch Hook</th>
-                <th className="px-4 py-4 font-medium text-center">Status</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border">
-              {leads.map((lead, index) => {
-                const pitch = getPitchHook(lead);
-                const loadMs = getMobileLoadMs(lead);
-                const hasChatbot = getHasChatbot(lead);
-                const reg = lead.region || lead["Region"] || region;
-                const leadName = lead.business_name || lead["Business Name"] || lead.name || "Unknown Business";
-                const phone = lead.phone || lead["Phone"] || lead.contact || lead["Contact"] || "Hidden";
-                const email = lead.email || lead["Email"];
-                const website = lead.website || lead["Website"];
-
-                return (
-                  <tr key={lead.id ?? index} className="hover:bg-surface-hover transition-colors">
-                    {/* Business Name + Region */}
-                    <td className="px-5 py-4">
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs px-1.5 py-0.5 bg-surface border border-border text-foreground/60 font-mono">
-                          {reg}
-                        </span>
-                        <span className="font-medium text-white">{leadName}</span>
-                      </div>
-                    </td>
-
-                    {/* Contact & Phone */}
-                    <td className="px-5 py-4 text-foreground/80 font-mono text-xs">
-                      <div>{phone}</div>
-                      {email && email !== "N/A" && (
-                        <div className="text-foreground/50 text-[11px] truncate max-w-[180px]">{email}</div>
-                      )}
-                    </td>
-
-                    {/* Website */}
-                    <td className="px-5 py-4">
-                      {website ? (
-                        <a 
-                          href={website.startsWith("http") ? website : `https://${website}`} 
-                          target="_blank" 
-                          rel="noreferrer" 
-                          className="inline-flex items-center gap-1 text-primary-400 hover:text-primary-300 hover:underline max-w-[200px] truncate"
-                        >
-                          <span className="truncate">{website.replace(/^https?:\/\//, "")}</span>
-                          <ExternalLink className="w-3 h-3 flex-shrink-0" />
-                        </a>
-                      ) : (
-                        <span className="text-foreground/40 italic">No website</span>
-                      )}
-                    </td>
-
-                    {/* Mobile Load Time (ms) */}
-                    <td className="px-4 py-4 text-center">
-                      {loadMs > 0 ? (
-                        <span className={`inline-block font-mono text-xs px-2 py-0.5 border ${
-                          loadMs > 3000 
-                            ? "bg-amber-500/10 text-amber-400 border-amber-500/30" 
-                            : "bg-emerald-500/10 text-emerald-400 border-emerald-500/30"
-                        }`}>
-                          {loadMs.toLocaleString()} ms
-                        </span>
-                      ) : (
-                        <span className="text-foreground/40 font-mono text-xs">N/A</span>
-                      )}
-                    </td>
-
-                    {/* Chatbot Widget Status */}
-                    <td className="px-4 py-4 text-center">
-                      {hasChatbot ? (
-                        <span className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-mono bg-cyan-500/10 text-cyan-400 border border-cyan-500/30">
-                          <Bot className="w-3 h-3" />
-                          Detected
-                        </span>
-                      ) : (
-                        <span className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-mono bg-surface border border-border text-foreground/40">
-                          None
-                        </span>
-                      )}
-                    </td>
-
-                    {/* Pitch Hook Badge Column */}
-                    <td className="px-5 py-4">
-                      {pitch === "Pitch $750 Speed Overhaul (#2)" ? (
-                        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-mono font-semibold bg-amber-500/15 text-amber-300 border border-amber-500/40">
-                          <Zap className="w-3.5 h-3.5 text-amber-400" />
-                          Pitch $750 Speed Overhaul (#2)
-                        </span>
-                      ) : pitch === "Pitch $1,000 RAG Bot (#4)" ? (
-                        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-mono font-semibold bg-cyan-500/15 text-cyan-300 border border-cyan-500/40">
-                          <Bot className="w-3.5 h-3.5 text-cyan-400" />
-                          Pitch $1,000 RAG Bot (#4)
-                        </span>
-                      ) : (
-                        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-mono font-medium bg-emerald-500/15 text-emerald-300 border border-emerald-500/40">
-                          <CheckCircle className="w-3.5 h-3.5 text-emerald-400" />
-                          {pitch}
-                        </span>
-                      )}
-                    </td>
-
-                    {/* Status */}
-                    <td className="px-4 py-4 text-center">
-                      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-bold bg-[var(--color-success-bg)] text-success-400 border border-success-500 uppercase tracking-widest">
-                        <span className="w-1.5 h-1.5 bg-success-500" />
-                        Extracted
-                      </span>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-          
-          {leads.length === 0 && (
-            <div className="p-12 text-center text-foreground/50 font-mono text-sm">
-              No leads found. Select a target region, enter a niche and location, and start extraction.
-            </div>
-          )}
-        </div>
+        <LeadResults leads={leads} region={region} />
       </div>
     </div>
   );
