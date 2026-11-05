@@ -9,6 +9,10 @@ export interface PriceTierProps {
   description: string;
   features: string[];
   featured?: boolean;
+  ctaText?: string;
+  ctaHref?: string;
+  onAction?: () => void;
+  actionDisabled?: boolean;
 }
 
 export function PriceTier({
@@ -18,6 +22,10 @@ export function PriceTier({
   description,
   features,
   featured = false,
+  ctaText,
+  ctaHref,
+  onAction,
+  actionDisabled = false,
 }: PriceTierProps): React.ReactElement {
   return (
     <div
@@ -55,19 +63,33 @@ export function PriceTier({
         ))}
       </ul>
 
-      <Link
-        href="/sign-up"
-        className={`w-full py-3.5 px-6 text-center text-sm font-semibold transition-colors block ${
-          featured
-            ? "bg-white text-black hover:bg-zinc-200"
-            : "bg-surface text-white border border-border hover:bg-surface-hover hover:border-border-strong"
-        }`}
-      >
-        {featured ? "Get started with Pro" : "Contact sales"}
-      </Link>
+      {onAction ? (
+        <button
+          type="button"
+          onClick={onAction}
+          disabled={actionDisabled}
+          className={`w-full py-3.5 px-6 text-center text-sm font-semibold transition-colors block cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed ${
+            featured
+              ? "bg-white text-black hover:bg-zinc-200"
+              : "bg-surface text-white border border-border hover:bg-surface-hover hover:border-border-strong"
+          }`}
+        >
+          {ctaText || (featured ? "Subscribe now" : "Contact sales")}
+        </button>
+      ) : (
+        <Link
+          href={ctaHref || "/sign-up"}
+          className={`w-full py-3.5 px-6 text-center text-sm font-semibold transition-colors block ${
+            featured
+              ? "bg-white text-black hover:bg-zinc-200"
+              : "bg-surface text-white border border-border hover:bg-surface-hover hover:border-border-strong"
+          }`}
+        >
+          {ctaText || (featured ? "Get started with Pro" : "Contact sales")}
+        </Link>
+      )}
     </div>
   );
 }
 
 export default PriceTier;
-

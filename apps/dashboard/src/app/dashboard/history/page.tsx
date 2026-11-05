@@ -1,20 +1,16 @@
 "use client";
 
-import { History, Download, Clock } from "lucide-react";
-
 export default function HistoryPage() {
   return (
-    <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-1000">
+    <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
       <div className="flex flex-col gap-2">
-        <h1 className="text-3xl font-bold tracking-tight text-white">Extraction History</h1>
-        <p className="text-zinc-400">View and download your past lead extractions.</p>
+        <h1 className="text-3xl font-semibold tracking-tight text-white">Extraction history</h1>
+        <p className="text-foreground/70">View and download your past lead extractions.</p>
       </div>
 
-      <div className="panel p-8 text-center flex flex-col items-center justify-center min-h-[400px]">
-        <Clock className="w-12 h-12 text-foreground/40 mb-4" />
-        <h3 className="text-xl font-display text-white mb-2">No history yet</h3>
-        <p className="text-foreground/50 max-w-md font-mono text-sm">
-          Your extraction history will appear here once you start scraping directories.
+      <div className="panel p-12 text-center flex flex-col items-center justify-center min-h-64">
+        <p className="text-foreground/60 font-mono text-sm">
+          History is not available in this build.
         </p>
       </div>
     </div>
