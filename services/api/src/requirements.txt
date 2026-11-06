@@ -4,8 +4,9 @@ pandas
 python-dotenv
 fastapi
 uvicorn
-sqlalchemy
+# SQLAlchemy 2.1 defaults `postgresql://` to psycopg v3; the image installs psycopg2.
+sqlalchemy>=2.0,<2.1
 psycopg2-binary
-PyJWT
+PyJWT[crypto]
 requests
 stripe

@@ -227,3 +227,47 @@ Do **not** quote a date for "perfect". Quote Phase 1's done-when list. It is ver
 Approve Phase 0 and Phase 1. I will then write the task-by-task implementation plan for
 Phase 0 (small enough to execute in one pass), execute it, and follow with the Phase 1
 plan. Payments stay untouched until Phase 3.
+
+---
+
+## 9. Phase 0 outcome (2026-11-06)
+
+Approved and completed on branch `fix/auth-theme-and-contrast`. Plan:
+`docs/superpowers/plans/2026-11-06-phase-0-truth-and-safety.md`.
+
+**Changed**
+
+- Auth now fails closed: no bypass from missing Clerk config, no bypass in production,
+  and a production process refuses to start with `DEV_BYPASS_AUTH=true`.
+- `render.yaml` no longer sets the bypass; it sets `ENVIRONMENT=production` and an
+  explicit `ALLOWED_ORIGINS`.
+- CORS comes from `ALLOWED_ORIGINS`, with no wildcard.
+- Scrape input is validated (`query` 2–200, six regions, three sources, `limit` 1–50).
+- A worker failure returns `502`, a timeout `504`, an unconfigured billing system `503`,
+  and a successful empty run `200` with `status: "empty"`. The UI can now tell these
+  apart instead of showing one generic failure.
+- `/api/checkout` (client-supplied price id) and the dead Streamlit dashboard were
+  removed.
+- Stripe no longer falls back to `sk_test_123` / `whsec_123`.
+- `/health/ready` checks the database; `/health` stays a liveness probe.
+- Every unimplemented marketing claim was removed from the landing FAQ, pricing page
+  and billing page.
+- Added `services/api/.env.example`, `requirements-dev.txt`, and 32 pytest tests.
+
+**Verified**
+
+- 32 backend tests pass.
+- `design-lint` clean, 14 frontend tests pass, `tsc --noEmit` clean, production build
+  passes.
+- `PyJWT[crypto]` is now explicit (plain `PyJWT` cannot verify RS256).
+- SQLAlchemy is pinned below 2.1, which silently switched the default Postgres driver
+  to psycopg v3 and would have broken the Render connection string.
+
+**Known, deliberately deferred**
+
+- `npm run lint` reports 7 `react-hooks/set-state-in-effect` errors in mount and
+  reduced-motion effects. They predate this work and need behavioral care, so they
+  belong with the Phase 1 UI work rather than a copy/config pass.
+- The dashboard still requires Clerk. Backend-only local runs work with the bypass;
+  dashboard operator mode is Phase 1.
+

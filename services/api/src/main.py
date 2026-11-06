@@ -1,192 +1,268 @@
-import sys
-import subprocess
+import asyncio
 import json
 import os
-import asyncio
-from fastapi import FastAPI, Depends, HTTPException, BackgroundTasks, Request
-from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
-from auth import verify_clerk_token, is_dev_bypass
-from db import get_db, tenant_session
-from sqlalchemy.orm import Session
-from models import Lead, SearchHistory
-import stripe_service
+import subprocess
+import sys
+from contextlib import asynccontextmanager
+from typing import Literal
 
-app = FastAPI(title="Insight Scraper API")
+from fastapi import Depends, FastAPI, HTTPException, Query, Request
+from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import text
+from sqlalchemy.orm import Session
+
+import config
+import stripe_service
+from auth import verify_clerk_token
+from db import engine, get_db, tenant_session
+from models import Lead, SearchHistory
+
+Region = Literal["US", "GB", "AU", "CA", "AE", "KE"]
+Source = Literal["gmaps", "duckduckgo-places", "yellowpages-intl"]
+
+SCRAPE_TIMEOUT_SECONDS = int(os.getenv("SCRAPE_TIMEOUT_SECONDS", "300"))
+
+
+class ScraperError(RuntimeError):
+    """The worker process ran but did not produce usable output."""
+
+
+class ScraperTimeout(ScraperError):
+    """The worker exceeded SCRAPE_TIMEOUT_SECONDS."""
+
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    config.validate_startup()
+    yield
+
+
+app = FastAPI(title="Insight Scraper API", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=config.allowed_origins(),
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type"],
 )
 
-def _run_scraper_subprocess(query: str, region: str = "US", source: str = "gmaps", limit: int = 25) -> list:
-    """Runs the international scraper worker in a separate process."""
+
+def _run_scraper_subprocess(
+    query: str,
+    region: str = "US",
+    source: str = "gmaps",
+    limit: int = 25,
+) -> list:
+    """Run the scraper worker in a separate process and return its leads.
+
+    Raises ScraperError when the worker fails or emits unparseable output, so the API
+    can distinguish "the scrape broke" from "the scrape found nothing".
+    """
     current_dir = os.path.dirname(os.path.abspath(__file__))
-    worker_path = os.path.join(current_dir, 'scraper_worker.py')
-    
+    worker_path = os.path.join(current_dir, "scraper_worker.py")
+
     cmd = [
         sys.executable,
         "-u",
         worker_path,
-        "--query", query,
-        "--region", region,
-        "--source", source,
-        "--limit", str(limit)
+        "--query",
+        query,
+        "--region",
+        region,
+        "--source",
+        source,
+        "--limit",
+        str(limit),
     ]
 
     try:
-        output = subprocess.check_output(cmd, text=True)
-        output_clean = output.strip()
-        if output_clean.startswith("[") and output_clean.endswith("]"):
-            leads = json.loads(output_clean)
-        else:
-            # Fallback search for JSON array block in case of any preamble
-            start_idx = output_clean.find("[")
-            end_idx = output_clean.rfind("]")
-            if start_idx != -1 and end_idx != -1 and end_idx > start_idx:
-                leads = json.loads(output_clean[start_idx:end_idx+1])
-            else:
-                leads = []
-        return leads
-    except subprocess.CalledProcessError as e:
-        print(f"Worker process encountered an error: {e}", file=sys.stderr)
-        return []
-    except Exception as e:
-        print(f"Failed to parse scraper worker output: {e}", file=sys.stderr)
-        return []
+        output = subprocess.check_output(
+            cmd,
+            text=True,
+            timeout=SCRAPE_TIMEOUT_SECONDS,
+            stderr=subprocess.PIPE,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise ScraperTimeout(
+            f"The scrape exceeded the {SCRAPE_TIMEOUT_SECONDS}s time limit."
+        ) from exc
+    except subprocess.CalledProcessError as exc:
+        detail = (exc.stderr or "").strip().splitlines()
+        reason = detail[-1] if detail else "the worker exited with an error"
+        raise ScraperError(reason) from exc
+
+    output_clean = output.strip()
+    if not output_clean:
+        raise ScraperError("the worker returned no output")
+
+    if output_clean.startswith("[") and output_clean.endswith("]"):
+        payload = output_clean
+    else:
+        start_idx = output_clean.find("[")
+        end_idx = output_clean.rfind("]")
+        if start_idx == -1 or end_idx <= start_idx:
+            raise ScraperError("the worker returned output that was not a lead list")
+        payload = output_clean[start_idx : end_idx + 1]
+
+    try:
+        leads = json.loads(payload)
+    except json.JSONDecodeError as exc:
+        raise ScraperError("the worker returned malformed lead data") from exc
+
+    if not isinstance(leads, list):
+        raise ScraperError("the worker returned an unexpected data shape")
+
+    return leads
+
 
 @app.post("/api/scrape")
 async def start_scrape(
-    query: str, 
-    region: str = "US",
-    source: str = "gmaps",
-    limit: int = 25,
-    tenant_id: str = Depends(verify_clerk_token), 
-    db: Session = Depends(get_db)
+    query: str = Query(min_length=config.MIN_QUERY_LENGTH, max_length=config.MAX_QUERY_LENGTH),
+    region: Region = Query(default="US"),
+    source: Source = Query(default="gmaps"),
+    limit: int = Query(default=25, ge=1, le=config.MAX_LEAD_LIMIT),
+    tenant_id: str = Depends(verify_clerk_token),
+    db: Session = Depends(get_db),
 ):
+    """Run one scrape for the authenticated tenant.
+
+    Rejects invalid input with 422, a missing subscription with 402, an unconfigured
+    billing system with 503, and worker failures with 502. A successful run that
+    found nothing returns 200 with `status: "empty"`.
     """
-    Endpoint to trigger an international scraping job across regions (US, GB, AU, CA, AE, KE).
-    Accepts: query, region, source (gmaps, duckduckgo-places, yellowpages-intl), and limit.
-    Bypasses Stripe checks when DEV_BYPASS_AUTH=true.
-    """
-    # 1. Check Stripe Status (bypassed if DEV_BYPASS_AUTH is active)
-    if not is_dev_bypass():
-        sub_status = stripe_service.get_tenant_status(db, tenant_id)
-        if sub_status not in ["active", "trialing"]:
+    if not config.dev_bypass_enabled():
+        if not config.billing_configured():
             raise HTTPException(
-                status_code=402, 
-                detail=f"Payment required. Current subscription status: {sub_status}"
+                status_code=503,
+                detail="Billing is not configured on this API. Contact the operator.",
             )
-        
-    # 2. Run Worker Subprocess
-    leads_data = await asyncio.to_thread(_run_scraper_subprocess, query, region, source, limit)
-        
-    if not leads_data:
-        return {"message": "No leads found or error occurred.", "leads": []}
-        
-    # 3. Save Leads with tenant_id using RLS session
+        sub_status = stripe_service.get_tenant_status(db, tenant_id)
+        if sub_status not in ("active", "trialing"):
+            raise HTTPException(
+                status_code=402,
+                detail=f"Payment required. Current subscription status: {sub_status}",
+            )
+
+    try:
+        leads_data = await asyncio.to_thread(
+            _run_scraper_subprocess, query, region, source, limit
+        )
+    except ScraperTimeout as exc:
+        raise HTTPException(status_code=504, detail=str(exc)) from exc
+    except ScraperError as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=f"The extraction worker failed: {exc}",
+        ) from exc
+
     with tenant_session(tenant_id) as session:
-        # Save Search History
         history = SearchHistory(tenant_id=tenant_id, query=f"[{region}][{source}] {query}")
         session.add(history)
-        
-        # Save Leads tagged with tenant_id
+
+        if not leads_data:
+            session.commit()
+            return {
+                "status": "empty",
+                "message": (
+                    "The scrape completed but found no matching businesses. "
+                    "Try a different query, region or source."
+                ),
+                "total_leads": 0,
+                "region": region,
+                "source": source,
+                "leads": [],
+            }
+
         saved_leads = []
         for lead in leads_data:
             contact_val = lead.get("Contact") or lead.get("Phone") or "Hidden"
             extras = []
             if lead.get("Email/Socials") and lead.get("Email/Socials") != "N/A":
                 extras.append(lead.get("Email/Socials"))
-            if lead.get("PageSpeed Score") and lead.get("PageSpeed Score") != "N/A":
-                extras.append(f"Speed: {lead.get('Mobile Load Time', '')} ({lead.get('PageSpeed Score')})")
             if extras:
                 contact_val = f"{contact_val} | " + " | ".join(extras)
 
-            db_lead = Lead(
-                tenant_id=tenant_id,
-                business_name=lead.get("Business Name", "N/A"),
-                contact=contact_val,
-                phone=lead.get("Phone", ""),
-                email=lead.get("Email", ""),
-                socials=lead.get("Socials", ""),
-                website=lead.get("Website", ""),
-                search_query=query,
-                region=region.upper(),
-                has_chatbot_widget=bool(lead.get("Has_Chatbot_Widget", False)),
-                mobile_load_ms=int(lead.get("Mobile_Load_Ms", 0) or 0),
-                pitch_hook=lead.get("Pitch_Hook", "")
+            session.add(
+                Lead(
+                    tenant_id=tenant_id,
+                    business_name=lead.get("Business Name", "N/A"),
+                    contact=contact_val,
+                    phone=lead.get("Phone", ""),
+                    email=lead.get("Email", ""),
+                    socials=lead.get("Socials", ""),
+                    website=lead.get("Website", ""),
+                    search_query=query,
+                    region=region,
+                    has_chatbot_widget=bool(lead.get("Has_Chatbot_Widget", False)),
+                    mobile_load_ms=int(lead.get("Mobile_Load_Ms", 0) or 0),
+                    pitch_hook=lead.get("Pitch_Hook", ""),
+                )
             )
-            session.add(db_lead)
-            saved_leads.append(db_lead)
-            
+            saved_leads.append(lead)
+
         session.commit()
-        
+
         return {
-            "message": f"Successfully scraped and saved {len(saved_leads)} leads for {region}.",
+            "status": "ok",
+            "message": f"Scraped and saved {len(saved_leads)} leads for {region}.",
             "total_leads": len(saved_leads),
-            "region": region.upper(),
+            "region": region,
             "source": source,
-            "leads": leads_data
+            "leads": leads_data,
         }
+
 
 @app.post("/api/webhooks/stripe")
 async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
     """Endpoint for Stripe to send webhook events."""
     return await stripe_service.process_webhook(request, db)
 
-class CheckoutRequest(BaseModel):
-    price_id: str
-    success_url: str
-    cancel_url: str
-
-@app.post("/api/checkout")
-async def create_checkout(
-    request: CheckoutRequest,
-    tenant_id: str = Depends(verify_clerk_token),
-    db: Session = Depends(get_db)
-):
-    """Creates a Stripe Checkout Session for the authenticated tenant."""
-    return {"url": stripe_service.create_checkout_session(
-        db, tenant_id, request.price_id, request.success_url, request.cancel_url
-    )}
 
 @app.get("/api/leads")
-async def get_leads(
-    tenant_id: str = Depends(verify_clerk_token)
-):
-    """
-    Retrieves leads for the authenticated tenant.
-    Demonstrates RLS in action: the query automatically uses the tenant session.
-    """
+async def get_leads(tenant_id: str = Depends(verify_clerk_token)):
+    """Return the most recent leads for the authenticated tenant."""
     with tenant_session(tenant_id) as session:
         leads = session.query(Lead).order_by(Lead.created_at.desc()).limit(200).all()
         return [
             {
-                "id": l.id,
-                "business_name": l.business_name,
-                "contact": l.contact,
-                "phone": getattr(l, "phone", "") or l.contact or "",
-                "email": getattr(l, "email", "") or "",
-                "socials": getattr(l, "socials", "") or "",
-                "website": l.website or "",
-                "query": l.search_query or "",
-                "region": getattr(l, "region", "US") or "US",
-                "has_chatbot_widget": bool(getattr(l, "has_chatbot_widget", False)),
-                "mobile_load_ms": getattr(l, "mobile_load_ms", 0) or 0,
-                "pitch_hook": getattr(l, "pitch_hook", "") or "",
-                "created_at": l.created_at.isoformat() if l.created_at else None
+                "id": lead.id,
+                "business_name": lead.business_name,
+                "contact": lead.contact,
+                "phone": getattr(lead, "phone", "") or lead.contact or "",
+                "email": getattr(lead, "email", "") or "",
+                "socials": getattr(lead, "socials", "") or "",
+                "website": lead.website or "",
+                "query": lead.search_query or "",
+                "region": getattr(lead, "region", "US") or "US",
+                "has_chatbot_widget": bool(getattr(lead, "has_chatbot_widget", False)),
+                "mobile_load_ms": getattr(lead, "mobile_load_ms", 0) or 0,
+                "pitch_hook": getattr(lead, "pitch_hook", "") or "",
+                "created_at": lead.created_at.isoformat() if lead.created_at else None,
             }
-            for l in leads
+            for lead in leads
         ]
+
 
 @app.get("/health")
 def health_check():
-    """Health check endpoint for container orchestrators (Render, Docker, etc.)."""
+    """Liveness probe. Does not touch the database."""
     return {"status": "ok"}
+
+
+@app.get("/health/ready")
+def readiness_check():
+    """Readiness probe. Fails when the database is unreachable."""
+    try:
+        with engine.connect() as connection:
+            connection.execute(text("SELECT 1"))
+    except Exception as exc:  # noqa: BLE001 - any connection failure means not ready
+        raise HTTPException(status_code=503, detail="Database unavailable") from exc
+
+    return {"status": "ready"}
+
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+
+    uvicorn.run(app, host="0.0.0.0", port=int(os.getenv("PORT", "8000")))

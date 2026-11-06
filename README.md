@@ -1,24 +1,34 @@
 # Insight Scraper
 
-[![Next.js](https://img.shields.io/badge/Next.js-15-black.svg)](https://nextjs.org/)
+[![Next.js](https://img.shields.io/badge/Next.js-16-black.svg)](https://nextjs.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.100+-009688.svg)](https://fastapi.tiangolo.com/)
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-15+-336791.svg)](https://www.postgresql.org/)
 [![Clerk](https://img.shields.io/badge/Auth-Clerk-6C47FF.svg)](https://clerk.com/)
 [![Stripe](https://img.shields.io/badge/Billing-Stripe-635BFF.svg)](https://stripe.com/)
 [![Docker](https://img.shields.io/badge/Docker-Compose-2496ED.svg)](https://docker.com/)
 
-Insight Scraper is a professional, multi-tenant B2B platform designed to extract, manage, and monetize high-value business leads from online directories. Originally built as a standalone local tool (Insight Scraper), it has been completely re-architected into a highly scalable, containerized cloud application featuring strict data isolation, subscription-based billing, and an enterprise-grade API layer.
+Insight Scraper extracts business leads from online directories, measures a small set of
+website signals, and writes a pitch hook for each result. It ships as a Next.js dashboard,
+a FastAPI service, and a Playwright scraper worker. A single-tenant local mode and a
+Clerk/Stripe-backed hosted mode share the same code.
+
+The marketing site describes what is implemented today. Features that are not yet built
+are not advertised.
 
 ---
 
 ## 🌟 Key Features
 
-- **Multi-Tenant Architecture:** Seamlessly supports multiple organizations using Clerk Identity, mapping users to specific tenant IDs.
-- **Ironclad Data Security (RLS):** Employs PostgreSQL Row-Level Security (RLS) to guarantee complete data isolation between tenants at the database level.
-- **Premium B2B Dashboard:** A fast, responsive frontend built with Next.js (App Router), Tailwind CSS, and a sleek dark-mode glassmorphic aesthetic.
-- **High-Performance API Engine:** A FastAPI backend orchestrates asynchronous data scraping tasks while respecting concurrency limits to prevent IP blocks.
-- **Integrated Monetization:** Built-in Stripe Checkout and webhook integration automatically tracks subscription statuses, securely gating access to core scraper functionality.
-- **Robust Web Scraping:** Uses headless Chromium via Playwright to reliably extract data from modern, JavaScript-heavy web applications.
+- **Organization-scoped data:** Clerk organizations map to tenant ids, and database
+  queries run inside a tenant session with PostgreSQL Row-Level Security policies.
+- **Working dashboard:** responsive Next.js App Router UI with an accessible mobile
+  drawer, lead table, KPI strip and CSV export.
+- **FastAPI service:** validated scrape requests, explicit error codes, health and
+  readiness probes.
+- **Playwright extraction:** headless Chromium collects business details, mobile load
+  time and chatbot-widget presence, then derives a pitch hook.
+- **Stripe scaffolding:** webhook handling for subscription status. Checkout and a
+  customer portal are not finished yet.
 
 ---
 
@@ -70,8 +80,14 @@ The easiest way to run Insight Scraper locally is by using Docker Compose.
 
 ### Prerequisites
 - [Docker & Docker Compose](https://www.docker.com/)
-- Active [Clerk](https://clerk.com/) developer account
-- Active [Stripe](https://stripe.com/) developer account
+- Node.js 20+ for the dashboard
+- Optional: a [Clerk](https://clerk.com/) application for hosted auth
+- Optional: a [Stripe](https://stripe.com/) account for billing
+
+The API can run without Clerk or Stripe by enabling the auth bypass described below.
+The dashboard still needs Clerk publishable keys in this build; a dashboard mode that
+runs without Clerk is not implemented yet. The bypass flag is development-only and the
+API refuses to start with it in production.
 
 ### 1. Environment Setup
 
@@ -88,13 +104,36 @@ STRIPE_SECRET_KEY=sk_test_...
 STRIPE_PRICE_ID=price_...
 ```
 
-**Backend Environment (via Docker Compose)**
-The `docker-compose.yml` automatically passes keys from the host to the FastAPI container. Alternatively, you can create a `.env` file at the root:
+**Backend Environment (`services/api/.env.example`)**
+The API reads its configuration from the process environment. Every supported variable
+is documented in [`services/api/.env.example`](services/api/.env.example). The values
+that matter locally are:
+
 ```env
-CLERK_FRONTEND_API=https://your-clerk-api.clerk.accounts.dev
-STRIPE_SECRET_KEY=sk_test_...
-STRIPE_WEBHOOK_SECRET=whsec_...
+ENVIRONMENT=development
+DATABASE_URL=postgresql://user:password@localhost:5432/foundry
+ALLOWED_ORIGINS=http://localhost:3000
+DEV_BYPASS_AUTH=true          # local only
+DEV_TENANT_ID=local_operator
 ```
+
+With `DEV_BYPASS_AUTH=true`, requests run as `DEV_TENANT_ID` and no Clerk token is
+required. Leave it unset for any deployment you intend to expose.
+
+### Local API development without Clerk or Stripe
+
+The backend can run without either service:
+
+1. Start PostgreSQL and the API with `docker compose up --build`.
+2. Set `DEV_BYPASS_AUTH=true` in the API environment.
+3. Send requests with any `Authorization: Bearer` value; the API runs them as
+   `DEV_TENANT_ID`.
+
+The dashboard still requires Clerk publishable keys because its middleware protects
+`/dashboard`. Running the whole product without Clerk is not implemented yet.
+
+Hosted mode requires `CLERK_FRONTEND_API`, a Clerk organization on the user, and
+`STRIPE_SECRET_KEY` plus `STRIPE_WEBHOOK_SECRET` before scraping is allowed.
 
 ### 2. Start the Scraper Backend Locally
 
@@ -118,11 +157,17 @@ Dashboard will be available at `http://localhost:3000` and automatically connect
 
 ## 🛡️ Security & Tenant Isolation
 
-This application uses a strict security model to ensure B2B data integrity:
+This application is designed around tenant isolation:
 1. **Authentication:** The frontend retrieves a JWT from Clerk.
-2. **Verification:** The FastAPI backend verifies the JWT using the `verify_clerk_token` dependency and extracts the `org_id`.
-3. **Data Access:** The `tenant_session(tenant_id)` context manager injects `SET LOCAL app.current_tenant = '<tenant_id>'` into the active database transaction.
-4. **Policy Enforcement:** PostgreSQL RLS policies automatically restrict all queries (`SELECT`, `INSERT`, `UPDATE`, `DELETE`) to the authenticated tenant's data. A leaked query string can never expose cross-tenant data.
+2. **Verification:** The FastAPI backend verifies the JWT against Clerk's JWKS and
+   extracts the `org_id`. A token without an organization is rejected with `403`.
+3. **Data Access:** The `tenant_session(tenant_id)` context manager sets
+   `app.current_tenant` for the transaction.
+4. **Policy Enforcement:** PostgreSQL RLS policies restrict reads and writes to the
+   current tenant.
+
+The policies exist in `init_db.py`, but cross-tenant isolation does not yet have an
+automated test. Treat that as a Phase 2 requirement before inviting outside users.
 
 ---
 
@@ -145,6 +190,9 @@ The FastAPI scraper backend and PostgreSQL database are ready for deployment via
    - A free PostgreSQL database (`insight-scraper-db`).
    - A free Web Service running the FastAPI + Playwright container with memory safeguards enabled (`LOW_MEMORY_MODE=true`, JS heap capped at 256MB, and heavy media blocking to prevent OOM errors on Render's 512MB RAM free tier).
 4. Point your Vercel frontend's `NEXT_PUBLIC_API_URL` to your Render service URL (e.g., `https://insight-scraper-api.onrender.com`).
+5. Set `ENVIRONMENT=production` and `ALLOWED_ORIGINS` to the exact frontend origin.
+   `render.yaml` already does this for `https://insight-scraper.vercel.app`; update it
+   if your domain differs. Never set `DEV_BYPASS_AUTH` in production.
 Alternatively, connect an external free PostgreSQL instance (such as Supabase or Neon) by updating `DATABASE_URL` in the Render service settings.
 
 ---

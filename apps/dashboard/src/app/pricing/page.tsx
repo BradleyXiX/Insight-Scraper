@@ -5,19 +5,19 @@ import { PriceTier } from "@/components/PriceTier";
 import { SiteFooter } from "@/components/SiteFooter";
 
 const PRO_FEATURES = [
-  "Unlimited B2B searches",
-  "High speed concurrency (10x)",
-  "Export to CSV and JSON",
-  "Priority 24/7 support",
-  "Automated data enrichment",
+  "Up to 50 leads per search",
+  "Mobile load time and chatbot detection",
+  "Contact and social signal extraction",
+  "CSV export",
+  "Email support",
 ];
 
 const ENTERPRISE_FEATURES = [
-  "Dedicated server infrastructure",
-  "Bypass rate limits",
+  "Custom lead volume",
+  "Custom source integrations",
   "Custom data formatting",
-  "Dedicated account manager",
-  "99.9% uptime SLA guarantee",
+  "Onboarding and setup help",
+  "Priority email support",
 ];
 
 export default function PricingPage(): React.ReactElement {
@@ -71,7 +71,7 @@ export default function PricingPage(): React.ReactElement {
             name="Pro"
             price="$49"
             period="/month"
-            description="Everything you need to extract and enrich leads"
+            description="For solo operators running targeted prospect lists"
             features={PRO_FEATURES}
             featured={true}
           />
@@ -79,7 +79,7 @@ export default function PricingPage(): React.ReactElement {
           <PriceTier
             name="Enterprise"
             price="Custom"
-            description="Custom tailored solutions for larger agencies"
+            description="For agencies that need custom volume and formatting"
             features={ENTERPRISE_FEATURES}
             featured={false}
           />
@@ -88,7 +88,7 @@ export default function PricingPage(): React.ReactElement {
         {/* Reassurance notes */}
         <div className="max-w-2xl mx-auto text-center border-t border-border pt-12">
           <p className="text-xs font-mono text-foreground/50">
-            Free to sign up. Subscriptions can be managed or canceled at any time from your billing dashboard.
+            Free to sign up. Contact support to change or cancel a subscription.
           </p>
         </div>
       </main>

@@ -6,19 +6,19 @@ import { useAuth } from "@clerk/nextjs";
 import { PriceTier } from "@/components/PriceTier";
 
 const PRO_FEATURES = [
-  "Unlimited B2B searches",
-  "High speed concurrency (10x)",
-  "Export to CSV and JSON",
-  "Priority 24/7 support",
-  "Automated data enrichment",
+  "Up to 50 leads per search",
+  "Mobile load time and chatbot detection",
+  "Contact and social signal extraction",
+  "CSV export",
+  "Email support",
 ];
 
 const ENTERPRISE_FEATURES = [
-  "Dedicated server infrastructure",
-  "Bypass rate limits",
+  "Custom lead volume",
+  "Custom source integrations",
   "Custom data formatting",
-  "Dedicated account manager",
-  "99.9% uptime SLA guarantee",
+  "Onboarding and setup help",
+  "Priority email support",
 ];
 
 export default function BillingPage() {
@@ -65,7 +65,7 @@ export default function BillingPage() {
           Plans and billing
         </h1>
         <p className="text-foreground/70">
-          Scale your business with high speed extractions. Manage your subscription and organization settings seamlessly.
+          Manage your plan and organization. Payment is handled by Stripe.
         </p>
       </div>
 
@@ -92,7 +92,7 @@ export default function BillingPage() {
           name="Pro"
           price="$49"
           period="/month"
-          description="Everything you need to extract and enrich leads"
+          description="For solo operators running targeted prospect lists"
           features={PRO_FEATURES}
           featured={true}
           ctaText={isLoading ? "Redirecting to Stripe..." : "Subscribe now"}
@@ -103,7 +103,7 @@ export default function BillingPage() {
         <PriceTier
           name="Enterprise"
           price="Custom"
-          description="Custom tailored solutions for larger agencies"
+          description="For agencies that need custom volume and formatting"
           features={ENTERPRISE_FEATURES}
           featured={false}
           ctaText="Contact sales"
@@ -118,12 +118,12 @@ export default function BillingPage() {
           <span>Processed by Stripe</span>
         </div>
         <div className="flex flex-col items-center gap-1.5">
-          <span className="font-medium text-white">Cancel anytime</span>
-          <span>No hidden fees</span>
+          <span className="font-medium text-white">Cancel by request</span>
+          <span>Contact support to change or cancel</span>
         </div>
         <div className="flex flex-col items-center gap-1.5">
-          <span className="font-medium text-white">Instant access</span>
-          <span>Account activated immediately</span>
+          <span className="font-medium text-white">Access after payment</span>
+          <span>Activated when payment is confirmed</span>
         </div>
       </div>
     </div>

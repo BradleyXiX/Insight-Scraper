@@ -1,58 +1,75 @@
-import os
-import json
-from fastapi import Request, HTTPException, Depends
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+import time
+
+from fastapi import Depends, HTTPException
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 import jwt
 import requests
 
+import config
+
 security = HTTPBearer(auto_error=False)
 
-# Get Clerk PEM public key URL from environment or use a default pattern
-# Note: In production, CLERK_FRONTEND_API should be set in .env
-CLERK_FRONTEND_API = os.getenv("CLERK_FRONTEND_API", "https://your-clerk-frontend-api.clerk.accounts.dev")
-JWKS_URL = f"{CLERK_FRONTEND_API}/.well-known/jwks.json"
+# Clerk rotates signing keys. Cache the JWKS for an hour instead of per process.
+_JWKS_TTL_SECONDS = 3600
+_jwks_cache: dict | None = None
+_jwks_cached_at = 0.0
 
-# In-memory cache for JWKS to avoid fetching on every request
-_jwks_cache = None
 
 def is_dev_bypass() -> bool:
-    """
-    Determines whether local dev auth bypass is active.
-    Defaults to True when DEV_BYPASS_AUTH=true, or when CLERK_FRONTEND_API is not configured/placeholder.
-    """
-    env_bypass = os.getenv("DEV_BYPASS_AUTH")
-    if env_bypass is not None:
-        return env_bypass.strip().lower() in ("true", "1", "yes")
+    """Whether the explicit local auth bypass applies (never in production)."""
+    return config.dev_bypass_enabled()
 
-    # If DEV_BYPASS_AUTH is not explicitly provided, check if CLERK_FRONTEND_API is missing or placeholder
-    clerk_api = os.getenv("CLERK_FRONTEND_API", "").strip()
-    if not clerk_api or "your-clerk" in clerk_api or "placeholder" in clerk_api:
-        return True
-    return False
 
-def get_jwks():
-    global _jwks_cache
-    if not _jwks_cache:
-        try:
-            response = requests.get(JWKS_URL, timeout=10)
-            response.raise_for_status()
-            _jwks_cache = response.json()
-        except requests.RequestException as e:
-            # Fallback for development/testing if JWKS is not available
-            print(f"Warning: Could not fetch JWKS from {JWKS_URL}. Error: {e}")
-            return None
+def get_jwks() -> dict | None:
+    """Fetch and cache Clerk's JWKS document. Returns None when it cannot be read."""
+    global _jwks_cache, _jwks_cached_at
+
+    if _jwks_cache is not None and (time.monotonic() - _jwks_cached_at) < _JWKS_TTL_SECONDS:
+        return _jwks_cache
+
+    frontend_api = config.clerk_frontend_api()
+    if not frontend_api:
+        return None
+
+    jwks_url = f"{frontend_api}/.well-known/jwks.json"
+    try:
+        response = requests.get(jwks_url, timeout=10)
+        response.raise_for_status()
+        _jwks_cache = response.json()
+        _jwks_cached_at = time.monotonic()
+    except (requests.RequestException, ValueError) as exc:
+        print(f"Warning: could not fetch JWKS from {jwks_url}: {exc}")
+        return None
+
     return _jwks_cache
 
-def verify_clerk_token(credentials: HTTPAuthorizationCredentials | None = Depends(security)) -> str:
+
+def verify_clerk_token(
+    credentials: HTTPAuthorizationCredentials | None = Depends(security),
+) -> str:
+    """Resolve the caller's tenant id from a Clerk session token.
+
+    Returns:
+        The Clerk organization id, or the configured local tenant while the explicit
+        development bypass is active.
+
+    Raises:
+        401 when a token is missing or invalid.
+        403 when the token has no organization.
+        503 when authentication is not configured or the key set is unreachable.
     """
-    Verifies Clerk RS256 JWT using JWKS keys.
-    Provides DEV_BYPASS_AUTH=true flag to allow local solo scraping runs without external auth roundtrips.
-    Defaults to true when CLERK_FRONTEND_API is not configured.
-    Returns tenant_id="local_operator" in dev bypass mode.
-    """
-    # 1. Clean DEV_BYPASS_AUTH check for solo local scraping runs
-    if is_dev_bypass():
-        return os.getenv("DEV_TENANT_ID", "local_operator")
+    if config.dev_bypass_enabled():
+        return config.dev_tenant_id()
+
+    frontend_api = config.clerk_frontend_api()
+    if not frontend_api:
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "Authentication is not configured. Set CLERK_FRONTEND_API, or set "
+                "DEV_BYPASS_AUTH=true for local development only."
+            ),
+        )
 
     if not credentials or not credentials.credentials:
         raise HTTPException(status_code=401, detail="Missing or invalid authorization header")
@@ -61,13 +78,15 @@ def verify_clerk_token(credentials: HTTPAuthorizationCredentials | None = Depend
     try:
         jwks = get_jwks()
         if not jwks or "keys" not in jwks:
-            raise HTTPException(status_code=500, detail="Could not retrieve JWKS for token verification")
+            raise HTTPException(
+                status_code=503,
+                detail="Could not retrieve the authentication key set. Try again shortly.",
+            )
 
-        # Fetch the unverified header to get the key ID (kid)
         unverified_header = jwt.get_unverified_header(token)
         kid = unverified_header.get("kid")
         if not kid:
-            raise HTTPException(status_code=401, detail="Token header missing key ID (kid)")
+            raise HTTPException(status_code=401, detail="Token header is missing a key id")
 
         rsa_key = None
         for key in jwks["keys"]:
@@ -77,39 +96,35 @@ def verify_clerk_token(credentials: HTTPAuthorizationCredentials | None = Depend
                     "kid": key["kid"],
                     "use": key.get("use", "sig"),
                     "n": key["n"],
-                    "e": key["e"]
+                    "e": key["e"],
                 }
                 break
 
         if not rsa_key:
-            raise HTTPException(status_code=401, detail=f"No matching JWK key found for kid: {kid}")
+            raise HTTPException(status_code=401, detail="No matching signing key for this token")
 
-        # Full RS256 JWKS signature verification via RSAAlgorithm.from_jwk()
         public_key = jwt.algorithms.RSAAlgorithm.from_jwk(rsa_key)
-        
-        decode_options = {"verify_aud": False}
         payload = jwt.decode(
             token,
             public_key,
             algorithms=["RS256"],
-            options=decode_options
+            options={"verify_aud": False, "require": ["exp", "sub"]},
         )
 
-        # Extract Clerk Organization ID (tenant)
         org_id = payload.get("org_id")
         if not org_id:
             raise HTTPException(
-                status_code=403, 
-                detail="User must belong to a Clerk Organization to access this resource."
+                status_code=403,
+                detail="A Clerk organization is required to access this workspace.",
             )
 
         return org_id
 
     except jwt.ExpiredSignatureError:
         raise HTTPException(status_code=401, detail="Token has expired")
-    except jwt.InvalidTokenError as e:
-        raise HTTPException(status_code=401, detail=f"Invalid token: {str(e)}")
+    except jwt.InvalidTokenError as exc:
+        raise HTTPException(status_code=401, detail=f"Invalid token: {exc}")
     except HTTPException:
         raise
-    except Exception as e:
-        raise HTTPException(status_code=401, detail=f"Authentication error: {str(e)}")
+    except Exception as exc:  # noqa: BLE001 - never leak a bare 500 from auth
+        raise HTTPException(status_code=401, detail=f"Authentication error: {exc}")

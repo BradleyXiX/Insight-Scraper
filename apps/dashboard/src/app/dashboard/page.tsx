@@ -339,7 +339,7 @@ export default function DashboardPage() {
         <div className="flex items-center gap-2 text-sm text-foreground/60">
           <AlertCircle className="w-4 h-4 text-accent" />
           <p>
-            Supports US, UK, Australia, Canada, UAE, and Kenya. Playwright rotates stealth profiles, audits mobile PageSpeed signals, and detects Intercom, Drift, Tidio, & Botpress widgets.
+            Supports US, UK, Australia, Canada, UAE, and Kenya. Playwright rotates browser profiles, measures mobile load time, and detects Intercom, Drift, Tidio, & Botpress widgets.
           </p>
         </div>
       </div>
