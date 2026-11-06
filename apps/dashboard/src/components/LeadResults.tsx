@@ -18,7 +18,7 @@ export interface LeadResultsProps {
 export function LeadResults({ leads, region }: LeadResultsProps): React.ReactElement {
   if (leads.length === 0) {
     return (
-      <div className="panel p-12 text-center text-foreground/50 font-mono text-sm">
+      <div className="panel p-12 text-center text-foreground/60 font-mono text-sm">
         No leads found for this search. Try a broader search term or different region.
       </div>
     );
@@ -49,7 +49,7 @@ export function LeadResults({ leads, region }: LeadResultsProps): React.ReactEle
       {/* Desktop / Tablet Table at lg and above */}
       <div className="panel overflow-x-auto hidden lg:block">
         <table className="w-full text-sm text-left">
-          <thead className="text-xs text-foreground/50 uppercase bg-surface border-b border-border">
+          <thead className="text-xs text-foreground/60 uppercase bg-surface border-b border-border">
             <tr>
               <th className="px-5 py-4 font-medium">Business Name</th>
               <th className="px-5 py-4 font-medium">Contact & Phone</th>
@@ -95,7 +95,7 @@ export function LeadResults({ leads, region }: LeadResultsProps): React.ReactEle
                   <td className="px-5 py-4 text-foreground/80 font-mono text-xs">
                     <div>{phone}</div>
                     {email && email !== "N/A" && (
-                      <div className="text-foreground/50 text-xs truncate max-w-xs">{email}</div>
+                      <div className="text-foreground/60 text-xs truncate max-w-xs">{email}</div>
                     )}
                   </td>
 
@@ -112,7 +112,7 @@ export function LeadResults({ leads, region }: LeadResultsProps): React.ReactEle
                         <ExternalLink className="w-3.5 h-3.5 shrink-0" strokeWidth={1.5} />
                       </a>
                     ) : (
-                      <span className="text-foreground/40 font-mono text-xs">No website</span>
+                      <span className="text-foreground/60 font-mono text-xs">No website</span>
                     )}
                   </td>
 
@@ -129,7 +129,7 @@ export function LeadResults({ leads, region }: LeadResultsProps): React.ReactEle
                         </span>
                       )
                     ) : (
-                      <span className="text-foreground/40 font-mono text-xs">N/A</span>
+                      <span className="text-foreground/60 font-mono text-xs">N/A</span>
                     )}
                   </td>
 
@@ -215,7 +215,7 @@ export function LeadResults({ leads, region }: LeadResultsProps): React.ReactEle
 
               {/* Contact & Phone */}
               <div className="space-y-0.5 text-xs font-mono">
-                <div className="text-foreground/50 uppercase tracking-wider text-xs">Contact</div>
+                <div className="text-foreground/60 uppercase tracking-wider text-xs">Contact</div>
                 <div className="text-foreground/90">{phone}</div>
                 {email && email !== "N/A" && (
                   <div className="text-foreground/60 break-all">{email}</div>
@@ -226,7 +226,7 @@ export function LeadResults({ leads, region }: LeadResultsProps): React.ReactEle
               <div className="grid grid-cols-2 gap-3 pt-1 border-t border-border">
                 {/* Mobile Load */}
                 <div>
-                  <div className="text-xs font-mono uppercase tracking-wider text-foreground/50 mb-1">
+                  <div className="text-xs font-mono uppercase tracking-wider text-foreground/60 mb-1">
                     Mobile load
                   </div>
                   {loadMs > 0 ? (
@@ -240,13 +240,13 @@ export function LeadResults({ leads, region }: LeadResultsProps): React.ReactEle
                       </span>
                     )
                   ) : (
-                    <span className="font-mono text-xs text-foreground/40">N/A</span>
+                    <span className="font-mono text-xs text-foreground/60">N/A</span>
                   )}
                 </div>
 
                 {/* Chatbot */}
                 <div>
-                  <div className="text-xs font-mono uppercase tracking-wider text-foreground/50 mb-1">
+                  <div className="text-xs font-mono uppercase tracking-wider text-foreground/60 mb-1">
                     Chatbot
                   </div>
                   {hasChatbot ? (
@@ -264,7 +264,7 @@ export function LeadResults({ leads, region }: LeadResultsProps): React.ReactEle
 
               {/* Pitch Hook */}
               <div className="pt-1 border-t border-border">
-                <div className="text-xs font-mono uppercase tracking-wider text-foreground/50 mb-1">
+                <div className="text-xs font-mono uppercase tracking-wider text-foreground/60 mb-1">
                   Pitch hook
                 </div>
                 {tone === "attention" ? (
@@ -287,7 +287,7 @@ export function LeadResults({ leads, region }: LeadResultsProps): React.ReactEle
 
               {/* Website */}
               <div className="pt-1 border-t border-border flex items-center justify-between text-xs">
-                <span className="font-mono uppercase tracking-wider text-foreground/50">Website</span>
+                <span className="font-mono uppercase tracking-wider text-foreground/60">Website</span>
                 {website ? (
                   <a
                     href={website.startsWith("http") ? website : `https://${website}`}
@@ -299,7 +299,7 @@ export function LeadResults({ leads, region }: LeadResultsProps): React.ReactEle
                     <ExternalLink className="w-3.5 h-3.5 shrink-0" strokeWidth={1.5} />
                   </a>
                 ) : (
-                  <span className="text-foreground/40 font-mono">No website</span>
+                  <span className="text-foreground/60 font-mono">No website</span>
                 )}
               </div>
             </li>

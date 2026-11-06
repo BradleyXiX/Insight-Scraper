@@ -144,7 +144,7 @@ export default function DashboardLayout({
                       "text-foreground hover:text-accent transition-colors focus:ring-0 rounded-none",
                     organizationPreviewTextContainer:
                       "text-foreground font-mono font-medium",
-                    organizationSwitcherTriggerIcon: "text-foreground/50",
+                    organizationSwitcherTriggerIcon: "text-foreground/60",
                     avatarBox: "w-6 h-6 rounded-none",
                   },
                 }}

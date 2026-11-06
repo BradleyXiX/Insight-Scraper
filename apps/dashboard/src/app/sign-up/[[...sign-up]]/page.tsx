@@ -1,6 +1,5 @@
 import { SignUp } from "@clerk/nextjs";
 import { Logo } from "@/components/Logo";
-import { clerkAppearance } from "@/lib/clerk-appearance";
 
 export default function Page() {
   return (
@@ -9,7 +8,7 @@ export default function Page() {
         <div className="mb-6">
           <Logo size={28} />
         </div>
-        <SignUp appearance={clerkAppearance} />
+        <SignUp />
       </div>
     </div>
   );

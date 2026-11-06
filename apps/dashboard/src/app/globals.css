@@ -1,3 +1,11 @@
+/*
+ * Layer order is load-bearing. Clerk injects its generated CSS at runtime; we
+ * ask it to wrap that CSS in `@layer clerk` (see clerk-appearance.ts) and place
+ * the layer before `utilities` so our Tailwind element classes can override the
+ * defaults. `base` must stay before `clerk` so preflight never restyles Clerk.
+ */
+@layer theme, base, components, clerk, utilities;
+
 @import "tailwindcss";
 
 @theme {

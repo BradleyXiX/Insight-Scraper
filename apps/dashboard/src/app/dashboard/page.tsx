@@ -290,7 +290,7 @@ export default function DashboardPage() {
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder="e.g. medspas in Austin TX, dentists in London, cafes in Sydney" 
-              className="w-full bg-surface border border-border rounded-none py-3 pl-12 pr-4 text-white placeholder:text-foreground/40 focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent transition-colors font-mono"
+              className="w-full bg-surface border border-border rounded-none py-3 pl-12 pr-4 text-white placeholder:text-foreground/60 focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent transition-colors font-mono"
             />
           </div>
 
@@ -299,7 +299,7 @@ export default function DashboardPage() {
             <button 
               type="submit"
               disabled={isRunning || !query.trim()}
-              className="flex items-center justify-center gap-2 bg-white text-black px-7 py-3 rounded-none font-semibold hover:bg-zinc-200 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm whitespace-nowrap w-full md:w-44"
+              className="flex items-center justify-center gap-2 bg-white text-black border border-transparent px-7 py-3 rounded-none font-semibold enabled:hover:bg-zinc-200 disabled:bg-surface-hover disabled:text-foreground/60 disabled:border-border disabled:cursor-not-allowed transition-colors text-sm whitespace-nowrap w-full md:w-44"
             >
               {isRunning ? (
                 <span className="flex items-center gap-2">
@@ -319,7 +319,7 @@ export default function DashboardPage() {
               type="button"
               onClick={handleExportCSV}
               disabled={leads.length === 0}
-              className="flex items-center justify-center gap-2 bg-surface border border-border text-foreground hover:text-white hover:border-foreground/40 px-5 py-3 rounded-none font-medium disabled:opacity-40 disabled:cursor-not-allowed transition-colors uppercase tracking-wider text-sm whitespace-nowrap"
+              className="flex items-center justify-center gap-2 bg-surface border border-border text-foreground enabled:hover:text-white enabled:hover:border-foreground/40 px-5 py-3 rounded-none font-medium disabled:text-foreground/60 disabled:cursor-not-allowed transition-colors uppercase tracking-wider text-sm whitespace-nowrap"
               title="Export all scraped leads to CSV"
             >
               <Download className="w-4 h-4" />
@@ -336,7 +336,7 @@ export default function DashboardPage() {
         />
         
         {/* Helper Note */}
-        <div className="flex items-center gap-2 text-sm text-foreground/50">
+        <div className="flex items-center gap-2 text-sm text-foreground/60">
           <AlertCircle className="w-4 h-4 text-accent" />
           <p>
             Supports US, UK, Australia, Canada, UAE, and Kenya. Playwright rotates stealth profiles, audits mobile PageSpeed signals, and detects Intercom, Drift, Tidio, & Botpress widgets.
@@ -360,7 +360,7 @@ export default function DashboardPage() {
             type="button"
             onClick={handleExportCSV}
             disabled={leads.length === 0}
-            className="flex items-center gap-2 text-sm font-medium text-foreground/70 hover:text-white disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+            className="flex items-center gap-2 text-sm font-medium text-foreground/70 enabled:hover:text-white disabled:text-foreground/60 disabled:cursor-not-allowed transition-colors"
           >
             <Download className="w-4 h-4" />
             Export CSV

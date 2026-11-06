@@ -121,7 +121,7 @@ export function ScrapeStatus({ state, onCancel, onRetry }: ScrapeStatusProps): R
         <span className="text-border-strong font-mono" aria-hidden="true">→</span>
 
         {/* Stage 3: Done */}
-        <span className={`flex items-center gap-1.5 ${isDone ? "text-accent font-semibold" : "text-foreground/40"}`}>
+        <span className={`flex items-center gap-1.5 ${isDone ? "text-accent font-semibold" : "text-foreground/60"}`}>
           <span className={`w-1.5 h-1.5 inline-block ${isDone ? "bg-accent" : "bg-foreground/30"}`} aria-hidden="true" />
           <span>Done</span>
           {isDone && (

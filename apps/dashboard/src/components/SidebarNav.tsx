@@ -58,7 +58,7 @@ export function SidebarNav({ onNavigate, stagger = false }: SidebarNavProps): Re
 
   return (
     <nav className="flex flex-col gap-1 w-full" aria-label="Dashboard navigation">
-      <div className="text-xs uppercase tracking-wider font-mono text-foreground/40 px-3 py-2">
+      <div className="text-xs uppercase tracking-wider font-mono text-foreground/60 px-3 py-2">
         Navigation
       </div>
       {DESTINATIONS.map((item, index) => {
