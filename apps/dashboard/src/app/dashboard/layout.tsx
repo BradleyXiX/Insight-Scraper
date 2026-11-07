@@ -2,9 +2,10 @@
 
 import React, { useEffect, useRef, useState } from "react";
 import { UserButton, OrganizationSwitcher } from "@clerk/nextjs";
-import { Menu, X, Sparkles } from "lucide-react";
+import { Menu, X, Sparkles, Terminal } from "lucide-react";
 import { Logo } from "@/components/Logo";
 import { SidebarNav } from "@/components/SidebarNav";
+import { useAppAuth } from "@/lib/app-auth";
 
 export default function DashboardLayout({
   children,
@@ -13,6 +14,7 @@ export default function DashboardLayout({
 }): React.ReactElement {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const menuButtonRef = useRef<HTMLButtonElement>(null);
+  const { isLocal, operatorLabel } = useAppAuth();
 
   // Close drawer on Escape key and restore focus to menu button
   useEffect(() => {
@@ -128,39 +130,50 @@ export default function DashboardLayout({
             {/* Workspace status badge */}
             <div className="flex items-center text-xs font-mono font-medium text-foreground/70">
               <span className="px-2.5 py-1 bg-surface-hover border border-border flex items-center gap-2 uppercase tracking-wider">
-                <Sparkles className="w-3.5 h-3.5 text-accent shrink-0" strokeWidth={1.5} />
-                <span>Workspace</span>
+                {isLocal ? (
+                  <Terminal className="w-3.5 h-3.5 text-accent shrink-0" strokeWidth={1.5} />
+                ) : (
+                  <Sparkles className="w-3.5 h-3.5 text-accent shrink-0" strokeWidth={1.5} />
+                )}
+                <span>{operatorLabel}</span>
               </span>
             </div>
           </div>
 
           {/* User & Org Controls */}
-          <div className="flex items-center gap-4 sm:gap-6">
-            <div className="border border-border bg-surface-hover px-2 py-1 hover:bg-surface transition-colors">
-              <OrganizationSwitcher
-                appearance={{
-                  elements: {
-                    organizationSwitcherTrigger:
-                      "text-foreground hover:text-accent transition-colors focus:ring-0 rounded-none",
-                    organizationPreviewTextContainer:
-                      "text-foreground font-mono font-medium",
-                    organizationSwitcherTriggerIcon: "text-foreground/60",
-                    avatarBox: "w-6 h-6 rounded-none",
-                  },
-                }}
-              />
+          {isLocal ? (
+            <span className="hidden sm:flex items-center gap-3 text-xs font-mono text-foreground/60">
+              No sign-in required
+              <span className="w-2 h-2 bg-accent inline-block" aria-hidden="true" />
+            </span>
+          ) : (
+            <div className="flex items-center gap-4 sm:gap-6">
+              <div className="border border-border bg-surface-hover px-2 py-1 hover:bg-surface transition-colors">
+                <OrganizationSwitcher
+                  appearance={{
+                    elements: {
+                      organizationSwitcherTrigger:
+                        "text-foreground hover:text-accent transition-colors focus:ring-0 rounded-none",
+                      organizationPreviewTextContainer:
+                        "text-foreground font-mono font-medium",
+                      organizationSwitcherTriggerIcon: "text-foreground/60",
+                      avatarBox: "w-6 h-6 rounded-none",
+                    },
+                  }}
+                />
+              </div>
+              <div className="pl-4 sm:pl-6 border-l border-border flex items-center">
+                <UserButton
+                  appearance={{
+                    elements: {
+                      userButtonAvatarBox:
+                        "w-8 h-8 border border-border hover:border-accent transition-colors rounded-none",
+                    },
+                  }}
+                />
+              </div>
             </div>
-            <div className="pl-4 sm:pl-6 border-l border-border flex items-center">
-              <UserButton
-                appearance={{
-                  elements: {
-                    userButtonAvatarBox:
-                      "w-8 h-8 border border-border hover:border-accent transition-colors rounded-none",
-                  },
-                }}
-              />
-            </div>
-          </div>
+          )}
         </header>
 
         {/* Scrolling Content targeted by skip link */}

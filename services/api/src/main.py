@@ -1,39 +1,34 @@
-import asyncio
-import json
 import os
-import subprocess
-import sys
 from contextlib import asynccontextmanager
 from typing import Literal
 
-from fastapi import Depends, FastAPI, HTTPException, Query, Request
+from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel, Field
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 import config
+import jobs
 import stripe_service
 from auth import verify_clerk_token
 from db import engine, get_db, tenant_session
-from models import Lead, SearchHistory
+from models import Lead, WorkspaceSettings
 
 Region = Literal["US", "GB", "AU", "CA", "AE", "KE"]
 Source = Literal["gmaps", "duckduckgo-places", "yellowpages-intl"]
 
-SCRAPE_TIMEOUT_SECONDS = int(os.getenv("SCRAPE_TIMEOUT_SECONDS", "300"))
-
-
-class ScraperError(RuntimeError):
-    """The worker process ran but did not produce usable output."""
-
-
-class ScraperTimeout(ScraperError):
-    """The worker exceeded SCRAPE_TIMEOUT_SECONDS."""
+DEFAULT_SETTINGS = {
+    "default_region": "US",
+    "default_source": "gmaps",
+    "default_limit": 25,
+}
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     config.validate_startup()
+    jobs.mark_stale_jobs_failed()
     yield
 
 
@@ -43,80 +38,66 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=config.allowed_origins(),
     allow_credentials=True,
-    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type"],
 )
 
 
-def _run_scraper_subprocess(
-    query: str,
-    region: str = "US",
-    source: str = "gmaps",
-    limit: int = 25,
-) -> list:
-    """Run the scraper worker in a separate process and return its leads.
+class SettingsPayload(BaseModel):
+    default_region: Region
+    default_source: Source
+    default_limit: int = Field(ge=1, le=config.MAX_LEAD_LIMIT)
 
-    Raises ScraperError when the worker fails or emits unparseable output, so the API
-    can distinguish "the scrape broke" from "the scrape found nothing".
-    """
-    current_dir = os.path.dirname(os.path.abspath(__file__))
-    worker_path = os.path.join(current_dir, "scraper_worker.py")
 
-    cmd = [
-        sys.executable,
-        "-u",
-        worker_path,
-        "--query",
-        query,
-        "--region",
-        region,
-        "--source",
-        source,
-        "--limit",
-        str(limit),
-    ]
+def _require_entitlement(db: Session, tenant_id: str) -> None:
+    """Reject scraping when hosted billing is required but unavailable."""
+    if config.dev_bypass_enabled():
+        return
 
-    try:
-        output = subprocess.check_output(
-            cmd,
-            text=True,
-            timeout=SCRAPE_TIMEOUT_SECONDS,
-            stderr=subprocess.PIPE,
+    if not config.billing_configured():
+        raise HTTPException(
+            status_code=503,
+            detail="Billing is not configured on this API. Contact the operator.",
         )
-    except subprocess.TimeoutExpired as exc:
-        raise ScraperTimeout(
-            f"The scrape exceeded the {SCRAPE_TIMEOUT_SECONDS}s time limit."
-        ) from exc
-    except subprocess.CalledProcessError as exc:
-        detail = (exc.stderr or "").strip().splitlines()
-        reason = detail[-1] if detail else "the worker exited with an error"
-        raise ScraperError(reason) from exc
 
-    output_clean = output.strip()
-    if not output_clean:
-        raise ScraperError("the worker returned no output")
-
-    if output_clean.startswith("[") and output_clean.endswith("]"):
-        payload = output_clean
-    else:
-        start_idx = output_clean.find("[")
-        end_idx = output_clean.rfind("]")
-        if start_idx == -1 or end_idx <= start_idx:
-            raise ScraperError("the worker returned output that was not a lead list")
-        payload = output_clean[start_idx : end_idx + 1]
-
-    try:
-        leads = json.loads(payload)
-    except json.JSONDecodeError as exc:
-        raise ScraperError("the worker returned malformed lead data") from exc
-
-    if not isinstance(leads, list):
-        raise ScraperError("the worker returned an unexpected data shape")
-
-    return leads
+    status = stripe_service.get_tenant_status(db, tenant_id)
+    if status not in ("active", "trialing"):
+        raise HTTPException(
+            status_code=402,
+            detail=f"Payment required. Current subscription status: {status}",
+        )
 
 
-@app.post("/api/scrape")
+def _serialize_lead(lead: Lead) -> dict:
+    return {
+        "id": lead.id,
+        "job_id": lead.job_id,
+        "business_name": lead.business_name,
+        "contact": lead.contact,
+        "phone": getattr(lead, "phone", "") or lead.contact or "",
+        "email": getattr(lead, "email", "") or "",
+        "socials": getattr(lead, "socials", "") or "",
+        "website": lead.website or "",
+        "query": lead.search_query or "",
+        "region": getattr(lead, "region", "US") or "US",
+        "has_chatbot_widget": bool(getattr(lead, "has_chatbot_widget", False)),
+        "mobile_load_ms": getattr(lead, "mobile_load_ms", 0) or 0,
+        "pitch_hook": getattr(lead, "pitch_hook", "") or "",
+        "created_at": lead.created_at.isoformat() if lead.created_at else None,
+    }
+
+
+def _settings_dict(settings: WorkspaceSettings | None) -> dict:
+    if settings is None:
+        return dict(DEFAULT_SETTINGS)
+    return {
+        "default_region": settings.default_region,
+        "default_source": settings.default_source,
+        "default_limit": settings.default_limit,
+    }
+
+
+@app.post("/api/scrape", status_code=202)
 async def start_scrape(
     query: str = Query(min_length=config.MIN_QUERY_LENGTH, max_length=config.MAX_QUERY_LENGTH),
     region: Region = Query(default="US"),
@@ -125,92 +106,130 @@ async def start_scrape(
     tenant_id: str = Depends(verify_clerk_token),
     db: Session = Depends(get_db),
 ):
-    """Run one scrape for the authenticated tenant.
+    """Queue a scrape job and return immediately.
 
-    Rejects invalid input with 422, a missing subscription with 402, an unconfigured
-    billing system with 503, and worker failures with 502. A successful run that
-    found nothing returns 200 with `status: "empty"`.
+    The worker runs outside the request, so the HTTP response is not held open for the
+    duration of a Chromium session. Poll `GET /api/jobs/{id}` for progress.
     """
-    if not config.dev_bypass_enabled():
-        if not config.billing_configured():
-            raise HTTPException(
-                status_code=503,
-                detail="Billing is not configured on this API. Contact the operator.",
-            )
-        sub_status = stripe_service.get_tenant_status(db, tenant_id)
-        if sub_status not in ("active", "trialing"):
-            raise HTTPException(
-                status_code=402,
-                detail=f"Payment required. Current subscription status: {sub_status}",
-            )
+    _require_entitlement(db, tenant_id)
 
-    try:
-        leads_data = await asyncio.to_thread(
-            _run_scraper_subprocess, query, region, source, limit
-        )
-    except ScraperTimeout as exc:
-        raise HTTPException(status_code=504, detail=str(exc)) from exc
-    except ScraperError as exc:
-        raise HTTPException(
-            status_code=502,
-            detail=f"The extraction worker failed: {exc}",
-        ) from exc
+    job = jobs.create_job(tenant_id, query, region, source, limit)
+    jobs.start_job(job.id)
 
-    with tenant_session(tenant_id) as session:
-        history = SearchHistory(tenant_id=tenant_id, query=f"[{region}][{source}] {query}")
-        session.add(history)
+    return {"job": jobs.serialize_job(job)}
 
-        if not leads_data:
-            session.commit()
-            return {
-                "status": "empty",
-                "message": (
-                    "The scrape completed but found no matching businesses. "
-                    "Try a different query, region or source."
-                ),
-                "total_leads": 0,
-                "region": region,
-                "source": source,
-                "leads": [],
-            }
 
-        saved_leads = []
-        for lead in leads_data:
-            contact_val = lead.get("Contact") or lead.get("Phone") or "Hidden"
-            extras = []
-            if lead.get("Email/Socials") and lead.get("Email/Socials") != "N/A":
-                extras.append(lead.get("Email/Socials"))
-            if extras:
-                contact_val = f"{contact_val} | " + " | ".join(extras)
+@app.get("/api/jobs")
+async def list_scrape_jobs(
+    limit: int = Query(default=20, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+    tenant_id: str = Depends(verify_clerk_token),
+):
+    """Return the tenant's run history, newest first."""
+    rows, total = jobs.list_jobs(tenant_id, limit, offset)
+    return {
+        "jobs": [jobs.serialize_job(job) for job in rows],
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+    }
 
-            session.add(
-                Lead(
-                    tenant_id=tenant_id,
-                    business_name=lead.get("Business Name", "N/A"),
-                    contact=contact_val,
-                    phone=lead.get("Phone", ""),
-                    email=lead.get("Email", ""),
-                    socials=lead.get("Socials", ""),
-                    website=lead.get("Website", ""),
-                    search_query=query,
-                    region=region,
-                    has_chatbot_widget=bool(lead.get("Has_Chatbot_Widget", False)),
-                    mobile_load_ms=int(lead.get("Mobile_Load_Ms", 0) or 0),
-                    pitch_hook=lead.get("Pitch_Hook", ""),
-                )
-            )
-            saved_leads.append(lead)
 
-        session.commit()
+@app.get("/api/jobs/{job_id}")
+async def get_scrape_job(
+    job_id: str,
+    tenant_id: str = Depends(verify_clerk_token),
+):
+    job = jobs.get_job(tenant_id, job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Job not found")
+    return {"job": jobs.serialize_job(job)}
 
-        return {
-            "status": "ok",
-            "message": f"Scraped and saved {len(saved_leads)} leads for {region}.",
-            "total_leads": len(saved_leads),
-            "region": region,
-            "source": source,
-            "leads": leads_data,
-        }
+
+@app.get("/api/jobs/{job_id}/leads")
+async def get_scrape_job_leads(
+    job_id: str,
+    tenant_id: str = Depends(verify_clerk_token),
+):
+    job = jobs.get_job(tenant_id, job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    leads = jobs.leads_for_job(tenant_id, job_id) or []
+    return {
+        "job": jobs.serialize_job(job),
+        "leads": [_serialize_lead(lead) for lead in leads],
+    }
+
+
+@app.post("/api/jobs/{job_id}/cancel")
+async def cancel_scrape_job(
+    job_id: str,
+    tenant_id: str = Depends(verify_clerk_token),
+):
+    job = jobs.request_cancel(tenant_id, job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Job not found")
+    return {"job": jobs.serialize_job(job)}
+
+
+@app.post("/api/jobs/{job_id}/rerun", status_code=202)
+async def rerun_scrape_job(
+    job_id: str,
+    tenant_id: str = Depends(verify_clerk_token),
+    db: Session = Depends(get_db),
+):
+    existing = jobs.get_job(tenant_id, job_id)
+    if existing is None:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    _require_entitlement(db, tenant_id)
+
+    job = jobs.create_job(
+        tenant_id,
+        existing.query,
+        existing.region,
+        existing.source,
+        existing.limit,
+    )
+    jobs.start_job(job.id)
+    return {"job": jobs.serialize_job(job)}
+
+
+@app.delete("/api/jobs/{job_id}", status_code=204)
+async def delete_scrape_job(
+    job_id: str,
+    tenant_id: str = Depends(verify_clerk_token),
+):
+    if not jobs.delete_job(tenant_id, job_id):
+        raise HTTPException(status_code=404, detail="Job not found")
+    return Response(status_code=204)
+
+
+@app.get("/api/settings")
+async def get_settings(tenant_id: str = Depends(verify_clerk_token)):
+    with tenant_session(tenant_id) as db:
+        settings = db.get(WorkspaceSettings, tenant_id)
+        return _settings_dict(settings)
+
+
+@app.put("/api/settings")
+async def update_settings(
+    payload: SettingsPayload,
+    tenant_id: str = Depends(verify_clerk_token),
+):
+    with tenant_session(tenant_id) as db:
+        settings = db.get(WorkspaceSettings, tenant_id)
+        if settings is None:
+            settings = WorkspaceSettings(tenant_id=tenant_id)
+            db.add(settings)
+
+        settings.default_region = payload.default_region
+        settings.default_source = payload.default_source
+        settings.default_limit = payload.default_limit
+
+        db.flush()
+        return _settings_dict(settings)
 
 
 @app.post("/api/webhooks/stripe")
@@ -222,26 +241,15 @@ async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
 @app.get("/api/leads")
 async def get_leads(tenant_id: str = Depends(verify_clerk_token)):
     """Return the most recent leads for the authenticated tenant."""
-    with tenant_session(tenant_id) as session:
-        leads = session.query(Lead).order_by(Lead.created_at.desc()).limit(200).all()
-        return [
-            {
-                "id": lead.id,
-                "business_name": lead.business_name,
-                "contact": lead.contact,
-                "phone": getattr(lead, "phone", "") or lead.contact or "",
-                "email": getattr(lead, "email", "") or "",
-                "socials": getattr(lead, "socials", "") or "",
-                "website": lead.website or "",
-                "query": lead.search_query or "",
-                "region": getattr(lead, "region", "US") or "US",
-                "has_chatbot_widget": bool(getattr(lead, "has_chatbot_widget", False)),
-                "mobile_load_ms": getattr(lead, "mobile_load_ms", 0) or 0,
-                "pitch_hook": getattr(lead, "pitch_hook", "") or "",
-                "created_at": lead.created_at.isoformat() if lead.created_at else None,
-            }
-            for lead in leads
-        ]
+    with tenant_session(tenant_id) as db:
+        leads = (
+            db.query(Lead)
+            .filter(Lead.tenant_id == tenant_id)
+            .order_by(Lead.created_at.desc())
+            .limit(200)
+            .all()
+        )
+        return [_serialize_lead(lead) for lead in leads]
 
 
 @app.get("/health")

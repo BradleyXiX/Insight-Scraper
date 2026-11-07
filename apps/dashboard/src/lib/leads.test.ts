@@ -1,8 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
-  SLOW_LOAD_MS, SPEED_PITCH, RAG_PITCH, QUALIFIED_PITCH,
-  getMobileLoadMs, getHasChatbot, getPitchHook, pitchTone, computeKpis, toCsv,
+  SPEED_PITCH, RAG_PITCH, QUALIFIED_PITCH,
+  getMobileLoadMs, getHasChatbot, getPitchHook, pitchTone, computeKpis, toCsv, toJson,
 } from "./leads.ts";
 
 test("load of exactly 3000ms is not slow", () => {
@@ -71,4 +71,27 @@ test("csv quotes, escapes and falls back", () => {
   assert.ok(lines[1].includes('"Cedar ""North"" Spa"'));
   assert.ok(lines[1].includes('"Hidden"'));
   assert.ok(lines[1].includes('"medspas in Austin, TX"'));
+});
+
+test("json export keeps the same fields as csv", () => {
+  const payload = JSON.parse(
+    toJson(
+      [
+        {
+          business_name: "Acme Coffee",
+          mobile_load_ms: 2100,
+          has_chatbot_widget: false,
+          region: "GB",
+        },
+      ],
+      { region: "US", query: "coffee shops" },
+    ),
+  ) as Array<Record<string, unknown>>;
+
+  assert.equal(payload.length, 1);
+  assert.equal(payload[0].business_name, "Acme Coffee");
+  assert.equal(payload[0].region, "GB");
+  assert.equal(payload[0].mobile_load_ms, 2100);
+  assert.equal(payload[0].has_chatbot_widget, false);
+  assert.equal(payload[0].search_query, "coffee shops");
 });

@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useRef, useState } from "react";
+import { useReducedMotion } from "@/lib/use-reduced-motion";
 
 export interface TaglineRevealProps {
   lines: string[];
@@ -9,6 +10,7 @@ export interface TaglineRevealProps {
 export function TaglineReveal({ lines }: TaglineRevealProps): React.ReactElement {
   const containerRef = useRef<HTMLDivElement>(null);
   const [activeIndices, setActiveIndices] = useState<Set<number>>(new Set());
+  const isReducedMotion = useReducedMotion();
 
   // Flatten lines into a word array with line break tracking
   const wordsWithMeta = lines.flatMap((line, lineIdx) => {
@@ -19,15 +21,10 @@ export function TaglineReveal({ lines }: TaglineRevealProps): React.ReactElement
       isLastInLine: wordIdx === words.length - 1,
     }));
   });
+  const wordCount = wordsWithMeta.length;
 
   useEffect(() => {
-    if (typeof window === "undefined") return;
-
-    // Under reduced motion, reveal all words immediately
-    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
-      setActiveIndices(new Set(wordsWithMeta.map((_, i) => i)));
-      return;
-    }
+    if (isReducedMotion) return;
 
     const container = containerRef.current;
     if (!container) return;
@@ -61,7 +58,7 @@ export function TaglineReveal({ lines }: TaglineRevealProps): React.ReactElement
     return () => {
       observer.disconnect();
     };
-  }, [wordsWithMeta.length]);
+  }, [isReducedMotion, wordCount]);
 
   return (
     <div ref={containerRef} className="py-24 px-6 max-w-5xl mx-auto text-center select-none">
@@ -77,7 +74,7 @@ export function TaglineReveal({ lines }: TaglineRevealProps): React.ReactElement
             >
               {lineWords.map((item, localIdx) => {
                 const globalIdx = startIndex + localIdx;
-                const isActive = activeIndices.has(globalIdx);
+                const isActive = isReducedMotion || activeIndices.has(globalIdx);
 
                 return (
                   <span

@@ -161,3 +161,28 @@ export function toCsv(leads: LeadItem[], fallback: { region: string; query: stri
   const headerLine = headers.map((h) => `"${h}"`).join(",");
   return [headerLine, ...rows].join("\r\n");
 }
+
+/**
+ * Stable JSON shape for the same fields as the CSV, so an export can be re-imported
+ * without guessing which key a value came from.
+ */
+export function toJson(leads: LeadItem[], fallback: { region: string; query: string }): string {
+  const records = leads.map((lead) => ({
+    business_name:
+      lead.business_name || lead["Business Name"] || lead.name || "Unknown Business",
+    phone: lead.phone || lead["Phone"] || lead.contact || lead["Contact"] || "Hidden",
+    website: lead.website || lead["Website"] || "",
+    email: lead.email || lead["Email"] || "",
+    socials: lead.socials || lead["Socials"] || "",
+    region: lead.region || lead["Region"] || fallback.region,
+    has_chatbot_widget: getHasChatbot(lead),
+    mobile_load_ms: getMobileLoadMs(lead),
+    pitch_hook: getPitchHook(lead),
+    contact: lead.contact || lead["Contact"] || "",
+    search_query:
+      lead.query || lead.search_query || lead["Search Query"] || fallback.query,
+    extracted_at: lead.created_at || new Date().toISOString(),
+  }));
+
+  return JSON.stringify(records, null, 2);
+}

@@ -13,13 +13,23 @@ import {
 export interface LeadResultsProps {
   leads: LeadItem[];
   region: string;
+  /** Copy for the empty table, so the message matches what actually happened. */
+  emptyMessage?: string;
 }
 
-export function LeadResults({ leads, region }: LeadResultsProps): React.ReactElement {
+/** Compact display label; the full pitch string is kept in exports and the title. */
+function pitchLabel(pitch: string): string {
+  if (/speed/i.test(pitch)) return "Speed overhaul";
+  if (/rag/i.test(pitch)) return "RAG bot";
+  return "AI automation";
+}
+
+export function LeadResults({ leads, region, emptyMessage }: LeadResultsProps): React.ReactElement {
   if (leads.length === 0) {
     return (
       <div className="panel p-12 text-center text-foreground/60 font-mono text-sm">
-        No leads found for this search. Try a broader search term or different region.
+        {emptyMessage ??
+          "No leads found for this search. Try a broader search term or different region."}
       </div>
     );
   }
@@ -48,16 +58,15 @@ export function LeadResults({ leads, region }: LeadResultsProps): React.ReactEle
 
       {/* Desktop / Tablet Table at lg and above */}
       <div className="panel overflow-x-auto hidden lg:block">
-        <table className="w-full text-sm text-left">
+        <table className="w-full table-fixed text-sm text-left">
           <thead className="text-xs text-foreground/60 uppercase bg-surface border-b border-border">
             <tr>
-              <th className="px-5 py-4 font-medium">Business Name</th>
-              <th className="px-5 py-4 font-medium">Contact & Phone</th>
-              <th className="px-5 py-4 font-medium">Website</th>
-              <th className="px-4 py-4 font-medium text-center">Mobile Load</th>
-              <th className="px-4 py-4 font-medium text-center">Chatbot</th>
-              <th className="px-5 py-4 font-medium">Pitch Hook</th>
-              <th className="px-4 py-4 font-medium text-center">Status</th>
+              <th className="w-56 px-5 py-4 font-medium">Business Name</th>
+              <th className="w-56 px-5 py-4 font-medium">Contact &amp; Phone</th>
+              <th className="w-56 px-5 py-4 font-medium">Website</th>
+              <th className="w-24 px-4 py-4 font-medium text-center">Mobile Load</th>
+              <th className="w-28 px-4 py-4 font-medium text-center">Chatbot</th>
+              <th className="w-44 px-5 py-4 font-medium">Pitch Hook</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-border">
@@ -106,7 +115,7 @@ export function LeadResults({ leads, region }: LeadResultsProps): React.ReactEle
                         href={website.startsWith("http") ? website : `https://${website}`}
                         target="_blank"
                         rel="noreferrer"
-                        className="inline-flex items-center gap-1 text-accent hover:underline max-w-xs truncate"
+                        className="inline-flex items-center gap-1 text-accent hover:underline max-w-full"
                       >
                         <span className="truncate">{website.replace(/^https?:\/\//, "")}</span>
                         <ExternalLink className="w-3.5 h-3.5 shrink-0" strokeWidth={1.5} />
@@ -150,29 +159,30 @@ export function LeadResults({ leads, region }: LeadResultsProps): React.ReactEle
                   {/* Pitch Hook Badge Column */}
                   <td className="px-5 py-4">
                     {tone === "attention" ? (
-                      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-mono font-medium text-attention bg-attention-quiet border border-attention/30">
+                      <span
+                        title={pitch}
+                        className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-mono font-medium text-attention bg-attention-quiet border border-attention/30 whitespace-nowrap"
+                      >
                         <Zap className="w-3.5 h-3.5 text-attention shrink-0" strokeWidth={1.5} />
-                        {pitch}
+                        {pitchLabel(pitch)}
                       </span>
                     ) : tone === "accent" ? (
-                      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-mono font-medium text-accent bg-accent-quiet border border-accent/30">
+                      <span
+                        title={pitch}
+                        className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-mono font-medium text-accent bg-accent-quiet border border-accent/30 whitespace-nowrap"
+                      >
                         <Bot className="w-3.5 h-3.5 text-accent shrink-0" strokeWidth={1.5} />
-                        {pitch}
+                        {pitchLabel(pitch)}
                       </span>
                     ) : (
-                      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-mono font-medium text-foreground/80 bg-surface border border-border">
+                      <span
+                        title={pitch}
+                        className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-mono font-medium text-foreground/80 bg-surface border border-border whitespace-nowrap"
+                      >
                         <CheckCircle className="w-3.5 h-3.5 text-foreground/70 shrink-0" strokeWidth={1.5} />
-                        {pitch}
+                        {pitchLabel(pitch)}
                       </span>
                     )}
-                  </td>
-
-                  {/* Status */}
-                  <td className="px-4 py-4 text-center">
-                    <span className="inline-flex items-center gap-1.5 px-2 py-0.5 text-xs font-mono uppercase bg-surface border border-border text-foreground/70">
-                      <span className="w-1.5 h-1.5 bg-foreground/60 inline-block" aria-hidden="true" />
-                      Extracted
-                    </span>
                   </td>
                 </tr>
               );

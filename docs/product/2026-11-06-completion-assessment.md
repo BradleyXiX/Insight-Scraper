@@ -271,3 +271,48 @@ Approved and completed on branch `fix/auth-theme-and-contrast`. Plan:
 - The dashboard still requires Clerk. Backend-only local runs work with the bypass;
   dashboard operator mode is Phase 1.
 
+---
+
+## 10. Phase 1 outcome (2026-11-07)
+
+Completed on the same branch. Plan:
+`docs/superpowers/plans/2026-11-06-phase-1-local-operator.md`.
+
+**What now works end to end, without Clerk or Stripe**
+
+- `NEXT_PUBLIC_AUTH_MODE=local` opens `/dashboard` with no sign-in. The API runs with
+  `DEV_BYPASS_AUTH=true` and every request is scoped to `DEV_TENANT_ID`.
+- A scrape is a database row, not a held-open request: `POST /api/scrape` returns `202`,
+  the worker runs as a cancellable subprocess, and the UI polls `GET /api/jobs/{id}`.
+- Cancel terminates the worker and records `cancelled`.
+- History lists runs with pagination, opens a run's leads, re-runs the same parameters,
+  and deletes a run with its leads.
+- Settings persist workspace defaults (region, source, limit).
+- CSV and JSON export work for the current set and for any stored run.
+- Dedupe on `(tenant, normalised website, normalised name)` reports duplicates on the
+  job instead of silently dropping them.
+- SQLite is a supported local database; `init_db` skips RLS there and relies on the
+  explicit tenant filters.
+
+**Verified**
+
+- 60 backend tests pass (up from 32).
+- 15 frontend unit tests, `design-lint`, `npm run lint`, `tsc --noEmit` and a
+  production build all pass in both `local` and `clerk` modes.
+- A real local run produced 10 leads, exported both formats, cancelled a run, opened and
+  deleted a stored run, and persisted settings, at 1440px and 390px.
+
+**Fixed while verifying**
+
+- Worker failures surfaced Playwright's ASCII banner instead of the actual error.
+- The empty lead table claimed "no leads" during runs, after cancels and after failures.
+- The desktop lead table clipped its last column; it is now fixed-width.
+- An unlabelled status dot appeared in the mobile header.
+
+**Still open (Phase 2 and 3)**
+
+- Cross-tenant RLS tests, quotas and rate limits, a distributed queue.
+- CI (GitHub Actions) and Playwright e2e automation.
+- Stripe checkout, portal and the entitlement lifecycle.
+- Structured logging and observability.
+

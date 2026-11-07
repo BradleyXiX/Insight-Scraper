@@ -1,6 +1,6 @@
 import React from "react";
 import Link from "next/link";
-import { ArrowRight, Database, Gauge, MessageSquare, Zap, ShieldCheck } from "lucide-react";
+import { ArrowRight, Gauge, MessageSquare, ShieldCheck } from "lucide-react";
 import { Logo } from "@/components/Logo";
 import { ExtractionDemo } from "@/components/ExtractionDemo";
 import { TaglineReveal } from "@/components/TaglineReveal";

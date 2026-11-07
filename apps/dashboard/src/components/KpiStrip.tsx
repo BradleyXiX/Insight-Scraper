@@ -15,14 +15,15 @@ export function KpiStrip({ leads }: KpiStripProps): React.ReactElement {
   const [displayMarkets, setDisplayMarkets] = useState(0);
 
   useEffect(() => {
-    if (typeof window === "undefined") return;
-
     if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
-      setDisplayTotal(kpis.total);
-      setDisplayMeanLoad(kpis.meanLoadMs);
-      setDisplayChatbotPct(kpis.withoutChatbotPct);
-      setDisplayMarkets(kpis.markets);
-      return;
+      // Deferred so the effect does not synchronously set state.
+      const timer = setTimeout(() => {
+        setDisplayTotal(kpis.total);
+        setDisplayMeanLoad(kpis.meanLoadMs);
+        setDisplayChatbotPct(kpis.withoutChatbotPct);
+        setDisplayMarkets(kpis.markets);
+      }, 0);
+      return () => clearTimeout(timer);
     }
 
     const duration = 400;

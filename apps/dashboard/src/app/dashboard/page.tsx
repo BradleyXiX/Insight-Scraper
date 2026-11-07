@@ -1,260 +1,348 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback } from "react";
-import { Search, Download, AlertCircle, Play, ChevronDown } from "lucide-react";
-import { useAuth } from "@clerk/nextjs";
-import { getApiUrl } from "@/lib/api";
-import { LeadItem, toCsv } from "@/lib/leads";
+import { useCallback, useEffect, useState } from "react";
+import { Search, Download, AlertCircle, Play, ChevronDown, FileJson } from "lucide-react";
+import { useAppAuth } from "@/lib/app-auth";
+import {
+  DEFAULT_SETTINGS,
+  getJob,
+  getJobLeads,
+  getSettings,
+  isActiveJob,
+  jobStartedAt,
+  listJobs,
+  REGION_OPTIONS,
+  SOURCE_OPTIONS,
+  startScrape,
+  cancelJob,
+  type JobPage,
+  type ScrapeJob,
+  type WorkspaceSettings,
+} from "@/lib/jobs";
+import { NETWORK_FAILURE, readFailure } from "@/lib/errors";
+import { LeadItem, toCsv, toJson } from "@/lib/leads";
+import { downloadFile, exportBaseName } from "@/lib/download";
 import { KpiStrip } from "@/components/KpiStrip";
-import { ScrapeStatus, ScrapeState } from "@/components/ScrapeStatus";
+import { ScrapeStatus, type ScrapeState } from "@/components/ScrapeStatus";
 import { LeadResults } from "@/components/LeadResults";
 
-const REGION_OPTIONS = [
-  { value: "US", label: "🇺🇸 USA" },
-  { value: "GB", label: "🇬🇧 UK" },
-  { value: "AU", label: "🇦🇺 Australia" },
-  { value: "CA", label: "🇨🇦 Canada" },
-  { value: "AE", label: "🇦🇪 UAE" },
-  { value: "KE", label: "🇰🇪 Kenya" },
-];
+const LIMIT_OPTIONS = [10, 25, 50];
 
-const SOURCE_OPTIONS = [
-  { value: "gmaps", label: "📍 Google Maps" },
-  { value: "duckduckgo-places", label: "🦆 DuckDuckGo Places" },
-  { value: "yellowpages-intl", label: "📖 YellowPages Intl" },
-];
+function duplicateNote(count: number): string | undefined {
+  if (count <= 0) return undefined;
+  return `${count} duplicate${count === 1 ? "" : "s"} skipped`;
+}
+
+/** Map the API's job status onto the three-stage strip the dashboard renders. */
+function stateForJob(job: ScrapeJob): ScrapeState {
+  switch (job.status) {
+    case "queued":
+    case "running":
+      return { phase: "running", startedAt: jobStartedAt(job) };
+    case "succeeded":
+      return {
+        phase: "done",
+        count: job.result_count,
+        note: duplicateNote(job.duplicate_count),
+      };
+    case "empty":
+      return {
+        phase: "empty",
+        note:
+          job.duplicate_count > 0
+            ? `All ${job.duplicate_count} result${job.duplicate_count === 1 ? " was" : "s were"} already in your history.`
+            : undefined,
+      };
+    case "cancelled":
+      return { phase: "cancelled" };
+    case "failed":
+      return {
+        phase: "error",
+        message: job.error || "The extraction failed. Retry or change the source.",
+      };
+    default:
+      return { phase: "idle" };
+  }
+}
+
+/** Copy for the empty lead table, matched to the run's real outcome. */
+function emptyLeadsMessage(state: ScrapeState, hasJob: boolean): string | undefined {
+  switch (state.phase) {
+    case "running":
+      return "Extraction in progress. Leads appear here as soon as the run finishes.";
+    case "cancelled":
+      return "This run was cancelled before any leads were saved.";
+    case "error":
+      return "This run did not finish. Fix the error above and retry.";
+    case "done":
+      return undefined;
+    default:
+      return hasJob ? undefined : "No extraction yet. Start a search to collect leads.";
+  }
+}
 
 export default function DashboardPage() {
-  const { getToken } = useAuth();
+  const { getToken } = useAppAuth();
+
   const [query, setQuery] = useState("");
-  const [region, setRegion] = useState("US");
-  const [source, setSource] = useState("gmaps");
+  const [region, setRegion] = useState(DEFAULT_SETTINGS.default_region);
+  const [source, setSource] = useState(DEFAULT_SETTINGS.default_source);
+  const [limit, setLimit] = useState(DEFAULT_SETTINGS.default_limit);
+
+  const [job, setJob] = useState<ScrapeJob | null>(null);
+  const [activeJobId, setActiveJobId] = useState<string | null>(null);
   const [scrapeState, setScrapeState] = useState<ScrapeState>({ phase: "idle" });
-  const [loadError, setLoadError] = useState<string | null>(null);
   const [leads, setLeads] = useState<LeadItem[]>([]);
-  const abortControllerRef = useRef<AbortController | null>(null);
-  const apiUrl = getApiUrl();
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
 
-  // Fetch initial leads on load
-  const fetchExistingLeads = useCallback(async () => {
-    setLoadError(null);
-    try {
-      let token = null;
+  const loadLeads = useCallback(
+    async (jobId: string) => {
       try {
-        token = await getToken();
+        const response = await getJobLeads(getToken, jobId);
+        if (!response.ok) {
+          setLoadError(await readFailure(response));
+          return;
+        }
+        const payload: { leads?: LeadItem[] } = await response.json();
+        setLeads(Array.isArray(payload.leads) ? payload.leads : []);
       } catch {
-        // Dev bypass mode when Clerk is unauthenticated
+        setLoadError(NETWORK_FAILURE);
       }
-      const headers: Record<string, string> = {};
-      if (token) {
-        headers["Authorization"] = `Bearer ${token}`;
-      } else {
-        headers["Authorization"] = "Bearer dev_bypass_token";
+    },
+    [getToken],
+  );
+
+  /** Restore defaults and the most recent run after a refresh. */
+  const loadWorkspace = useCallback(async () => {
+    try {
+      const settingsResponse = await getSettings(getToken);
+      setLoadError(null);
+      if (settingsResponse.ok) {
+        const settings: WorkspaceSettings = await settingsResponse.json();
+        setRegion(settings.default_region);
+        setSource(settings.default_source);
+        setLimit(settings.default_limit);
       }
 
-      const res = await fetch(`${apiUrl}/api/leads`, { headers });
-      if (!res.ok) {
-        throw new Error("Failed to load initial leads");
+      const jobsResponse = await listJobs(getToken, { limit: 1, offset: 0 });
+      if (!jobsResponse.ok) {
+        setLoadError(await readFailure(jobsResponse));
+        return;
       }
-      const data = await res.json();
-      if (Array.isArray(data)) {
-        setLeads(data);
+
+      const page: JobPage = await jobsResponse.json();
+      const latest = page.jobs[0];
+      if (!latest) return;
+
+      setJob(latest);
+      setQuery(latest.query);
+      setRegion(latest.region);
+      setSource(latest.source);
+      setLimit(latest.limit);
+      setScrapeState(stateForJob(latest));
+
+      if (isActiveJob(latest)) {
+        setActiveJobId(latest.id);
+      } else if (latest.status === "succeeded" || latest.status === "empty") {
+        await loadLeads(latest.id);
       }
     } catch {
-      setLoadError("Could not reach the extraction service. Check that the backend is running, then try again.");
+      setLoadError(NETWORK_FAILURE);
     }
-  }, [apiUrl, getToken]);
+  }, [getToken, loadLeads]);
 
   useEffect(() => {
-    fetchExistingLeads();
-  }, [fetchExistingLeads]);
+    // Deferred: the loader sets state after its first await, and deferring keeps the
+    // effect free of synchronous cascading renders.
+    const timer = setTimeout(() => {
+      void loadWorkspace();
+    }, 0);
+    return () => clearTimeout(timer);
+  }, [loadWorkspace]);
 
-  const handleExportCSV = () => {
-    if (!leads || leads.length === 0) return;
+  /** Poll the active job until it reaches a terminal status. */
+  useEffect(() => {
+    if (!activeJobId) return;
 
-    const csvContent = toCsv(leads, { region, query });
-    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.setAttribute("download", `b2b_leads_${region.toLowerCase()}_${new Date().toISOString().slice(0, 10)}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
-  };
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
 
-  const handleCancelScrape = () => {
-    if (abortControllerRef.current) {
-      abortControllerRef.current.abort();
-      abortControllerRef.current = null;
-    }
-    setScrapeState({ phase: "idle" });
-  };
+    const poll = async () => {
+      try {
+        const response = await getJob(getToken, activeJobId);
+        if (cancelled) return;
 
-  const handleScrape = async (e?: React.FormEvent) => {
-    if (e) e.preventDefault();
-    if (!query.trim()) return;
-    if (scrapeState.phase === "running") return;
+        if (!response.ok) {
+          setScrapeState({ phase: "error", message: await readFailure(response) });
+          setActiveJobId(null);
+          return;
+        }
 
-    if (abortControllerRef.current) {
-      abortControllerRef.current.abort();
-    }
-    const controller = new AbortController();
-    abortControllerRef.current = controller;
+        const { job: next }: { job: ScrapeJob } = await response.json();
+        if (cancelled) return;
 
+        setJob(next);
+        setScrapeState(stateForJob(next));
+
+        if (next.status === "succeeded") {
+          await loadLeads(next.id);
+          if (!cancelled) setActiveJobId(null);
+          return;
+        }
+
+        if (next.status === "empty") {
+          setLeads([]);
+          setActiveJobId(null);
+          return;
+        }
+
+        if (next.status === "failed" || next.status === "cancelled") {
+          setActiveJobId(null);
+          return;
+        }
+
+        timer = setTimeout(poll, 1500);
+      } catch {
+        if (!cancelled) {
+          timer = setTimeout(poll, 3000);
+        }
+      }
+    };
+
+    timer = setTimeout(poll, 0);
+
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, [activeJobId, getToken, loadLeads]);
+
+  const isRunning = scrapeState.phase === "running" || Boolean(activeJobId);
+
+  const handleScrape = async (event?: React.FormEvent) => {
+    event?.preventDefault();
+    const trimmed = query.trim();
+    if (!trimmed || isRunning || busy) return;
+
+    setBusy(true);
+    setLoadError(null);
+    setLeads([]);
     setScrapeState({ phase: "running", startedAt: Date.now() });
 
     try {
-      let token = null;
-      try {
-        token = await getToken();
-      } catch {
-        // Dev bypass mode
-      }
-
-      const headers: Record<string, string> = {};
-      if (token) {
-        headers["Authorization"] = `Bearer ${token}`;
-      } else {
-        headers["Authorization"] = "Bearer dev_bypass_token";
-      }
-
-      const scrapeParams = new URLSearchParams({
-        query: query.trim(),
-        region: region,
-        source: source,
-        limit: "25",
+      const response = await startScrape(getToken, {
+        query: trimmed,
+        region,
+        source,
+        limit,
       });
 
-      const res = await fetch(`${apiUrl}/api/scrape?${scrapeParams.toString()}`, {
-        method: "POST",
-        headers,
-        signal: controller.signal,
-      });
-
-      if (!res.ok) {
-        if (res.status === 402) {
-          setScrapeState({
-            phase: "error",
-            message: "Your subscription is not active. Open Billing to choose a plan.",
-          });
-          return;
-        }
-        if (res.status === 403) {
-          setScrapeState({
-            phase: "error",
-            message: "You do not have access to this workspace.",
-          });
-          return;
-        }
-        if (res.status >= 500) {
-          setScrapeState({
-            phase: "error",
-            message: "Could not reach the extraction service. Check that the backend is running, then try again.",
-          });
-          return;
-        }
-        setScrapeState({
-          phase: "error",
-          message: "Extraction failed. Try a different query or region.",
-        });
+      if (!response.ok) {
+        setScrapeState({ phase: "error", message: await readFailure(response) });
         return;
       }
 
-      const data = await res.json();
-      let newLeads: LeadItem[] = [];
-      if (data && Array.isArray(data.leads)) {
-        newLeads = data.leads;
-      }
-
-      // Fetch the updated list of leads from the database
-      try {
-        const leadsRes = await fetch(`${apiUrl}/api/leads`, {
-          headers,
-          signal: controller.signal,
-        });
-        if (leadsRes.ok) {
-          const leadsData = await leadsRes.json();
-          if (Array.isArray(leadsData) && leadsData.length > 0) {
-            newLeads = leadsData;
-          }
-        }
-      } catch {
-        // Keep leads from scrape response
-      }
-
-      setLeads(newLeads);
-
-      if (newLeads.length > 0) {
-        setScrapeState({ phase: "done", count: newLeads.length });
-      } else {
-        setScrapeState({ phase: "empty" });
-      }
+      const { job: created }: { job: ScrapeJob } = await response.json();
+      setJob(created);
+      setScrapeState(stateForJob(created));
+      setActiveJobId(created.id);
     } catch {
-      if (controller.signal.aborted) {
-        return;
-      }
-      setScrapeState({
-        phase: "error",
-        message: "Could not reach the extraction service. Check that the backend is running, then try again.",
-      });
+      setScrapeState({ phase: "error", message: NETWORK_FAILURE });
     } finally {
-      if (abortControllerRef.current === controller) {
-        abortControllerRef.current = null;
-      }
+      setBusy(false);
     }
   };
 
-  const isRunning = scrapeState.phase === "running";
+  const handleCancel = async () => {
+    const jobId = activeJobId ?? (job && isActiveJob(job) ? job.id : null);
+    if (!jobId || busy) return;
+
+    setBusy(true);
+    try {
+      const response = await cancelJob(getToken, jobId);
+      if (!response.ok) {
+        setLoadError(await readFailure(response));
+        return;
+      }
+      const { job: next }: { job: ScrapeJob } = await response.json();
+      setJob(next);
+      setScrapeState(stateForJob(next));
+      setActiveJobId(isActiveJob(next) ? next.id : null);
+    } catch {
+      setLoadError(NETWORK_FAILURE);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const exportTarget = {
+    query: job?.query ?? query,
+    region: job?.region ?? region,
+    id: job?.id,
+  };
+
+  const handleExportCsv = () => {
+    if (leads.length === 0) return;
+    downloadFile(
+      `${exportBaseName(exportTarget)}.csv`,
+      toCsv(leads, { region: exportTarget.region, query: exportTarget.query }),
+      "text/csv;charset=utf-8;",
+    );
+  };
+
+  const handleExportJson = () => {
+    if (leads.length === 0) return;
+    downloadFile(
+      `${exportBaseName(exportTarget)}.json`,
+      toJson(leads, { region: exportTarget.region, query: exportTarget.query }),
+      "application/json;charset=utf-8;",
+    );
+  };
 
   return (
     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
       <div className="flex flex-col gap-2">
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 flex-wrap">
           <h1 className="heading-4 text-foreground">International lead and signal scraper</h1>
           <span className="px-2.5 py-0.5 text-xs font-mono font-bold bg-accent-quiet text-accent border border-accent/40 uppercase">
-            Global Multi Source
+            Global multi source
           </span>
         </div>
         <p className="text-foreground/70">
-          Target niche and location across US, UK, Australia, Canada, UAE, and Kenya. Inspects mobile performance, chatbot adoption, and client pitch signals.
+          Target a niche and location across the US, UK, Australia, Canada, UAE, and Kenya.
+          Each run measures mobile load time, detects chat widgets, and writes a pitch hook.
         </p>
       </div>
 
-      {/* Initial Load Error Panel */}
       {loadError && (
-        <div className="panel p-4 bg-surface border border-danger/40 flex items-center justify-between text-sm">
+        <div className="panel p-4 bg-surface border border-danger/40 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-sm">
           <div className="flex items-center gap-3">
-            <span className="w-2 h-2 bg-danger inline-block" aria-hidden="true" />
-            <p className="text-danger font-mono text-xs">
-              {loadError}
-            </p>
+            <span className="w-2 h-2 bg-danger inline-block shrink-0" aria-hidden="true" />
+            <p className="text-danger font-mono text-xs">{loadError}</p>
           </div>
           <button
             type="button"
-            onClick={fetchExistingLeads}
-            className="text-xs font-mono uppercase tracking-wider px-3 py-1 bg-surface border border-border text-white hover:border-foreground/50 cursor-pointer transition-colors"
+            onClick={() => void loadWorkspace()}
+            className="text-xs font-mono uppercase tracking-wider px-3 py-1 bg-surface border border-border text-white hover:border-foreground/50 cursor-pointer transition-colors self-start sm:self-auto"
           >
             Try again
           </button>
         </div>
       )}
 
-      {/* Action Bar */}
       <div className="panel p-6 space-y-4">
         <form onSubmit={handleScrape} className="flex flex-col md:flex-row gap-3">
-          {/* Target Region Dropdown */}
-          <div className="relative w-full md:w-40">
+          <div className="relative w-full md:w-36">
             <select
               value={region}
-              onChange={(e) => setRegion(e.target.value)}
+              onChange={(event) => setRegion(event.target.value)}
               className="w-full bg-surface border border-border rounded-none py-3 pl-4 pr-10 text-white focus:outline-none focus:border-accent font-mono text-sm cursor-pointer appearance-none"
-              aria-label="Target Region"
+              aria-label="Target region"
             >
-              {REGION_OPTIONS.map((opt) => (
-                <option key={opt.value} value={opt.value} className="bg-surface text-white">
-                  {opt.label}
+              {REGION_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value} className="bg-surface text-white">
+                  {option.label}
                 </option>
               ))}
             </select>
@@ -263,17 +351,16 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          {/* Source Dropdown */}
-          <div className="relative w-full md:w-48">
+          <div className="relative w-full md:w-52">
             <select
               value={source}
-              onChange={(e) => setSource(e.target.value)}
+              onChange={(event) => setSource(event.target.value)}
               className="w-full bg-surface border border-border rounded-none py-3 pl-4 pr-10 text-white focus:outline-none focus:border-accent font-mono text-sm cursor-pointer appearance-none"
-              aria-label="Scraping Source"
+              aria-label="Scraping source"
             >
-              {SOURCE_OPTIONS.map((opt) => (
-                <option key={opt.value} value={opt.value} className="bg-surface text-white">
-                  {opt.label}
+              {SOURCE_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value} className="bg-surface text-white">
+                  {option.label}
                 </option>
               ))}
             </select>
@@ -282,92 +369,114 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          {/* Search Input */}
+          <div className="relative w-full md:w-32">
+            <select
+              value={limit}
+              onChange={(event) => setLimit(Number(event.target.value))}
+              className="w-full bg-surface border border-border rounded-none py-3 pl-4 pr-10 text-white focus:outline-none focus:border-accent font-mono text-sm cursor-pointer appearance-none"
+              aria-label="Lead limit"
+            >
+              {LIMIT_OPTIONS.map((value) => (
+                <option key={value} value={value} className="bg-surface text-white">
+                  {value} leads
+                </option>
+              ))}
+            </select>
+            <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-3 text-foreground/50">
+              <ChevronDown className="w-4 h-4" />
+            </div>
+          </div>
+
           <div className="relative flex-1">
             <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-foreground/50" />
-            <input 
-              type="text" 
+            <input
+              type="text"
               value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="e.g. medspas in Austin TX, dentists in London, cafes in Sydney" 
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="e.g. medspas in Austin TX, dentists in London"
+              maxLength={200}
               className="w-full bg-surface border border-border rounded-none py-3 pl-12 pr-4 text-white placeholder:text-foreground/60 focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent transition-colors font-mono"
             />
           </div>
 
-          {/* Action Buttons */}
-          <div className="flex gap-2">
-            <button 
-              type="submit"
-              disabled={isRunning || !query.trim()}
-              className="flex items-center justify-center gap-2 bg-white text-black border border-transparent px-7 py-3 rounded-none font-semibold enabled:hover:bg-zinc-200 disabled:bg-surface-hover disabled:text-foreground/60 disabled:border-border disabled:cursor-not-allowed transition-colors text-sm whitespace-nowrap w-full md:w-44"
-            >
-              {isRunning ? (
-                <span className="flex items-center gap-2">
-                  <span className="w-2 h-2 bg-accent motion-safe:animate-pulse inline-block" />
-                  Extracting...
-                </span>
-              ) : (
-                <span className="flex items-center gap-2">
-                  <Play className="w-4 h-4" />
-                  Start Extraction
-                </span>
-              )}
-            </button>
-
-            {/* Export CSV Button in Action Bar */}
-            <button 
-              type="button"
-              onClick={handleExportCSV}
-              disabled={leads.length === 0}
-              className="flex items-center justify-center gap-2 bg-surface border border-border text-foreground enabled:hover:text-white enabled:hover:border-foreground/40 px-5 py-3 rounded-none font-medium disabled:text-foreground/60 disabled:cursor-not-allowed transition-colors uppercase tracking-wider text-sm whitespace-nowrap"
-              title="Export all scraped leads to CSV"
-            >
-              <Download className="w-4 h-4" />
-              Export CSV
-            </button>
-          </div>
+          <button
+            type="submit"
+            disabled={isRunning || busy || !query.trim()}
+            className="flex items-center justify-center gap-2 bg-white text-black border border-transparent px-7 py-3 rounded-none font-semibold enabled:hover:bg-zinc-200 disabled:bg-surface-hover disabled:text-foreground/60 disabled:border-border disabled:cursor-not-allowed transition-colors text-sm whitespace-nowrap w-full md:w-48"
+          >
+            {isRunning ? (
+              <span className="flex items-center gap-2">
+                <span className="w-2 h-2 bg-accent motion-safe:animate-pulse inline-block" />
+                Extracting...
+              </span>
+            ) : (
+              <span className="flex items-center gap-2">
+                <Play className="w-4 h-4" />
+                Start extraction
+              </span>
+            )}
+          </button>
         </form>
 
-        {/* ScrapeStatus Mount */}
         <ScrapeStatus
           state={scrapeState}
-          onCancel={handleCancelScrape}
-          onRetry={() => handleScrape()}
+          onCancel={handleCancel}
+          onRetry={() => void handleScrape()}
         />
-        
-        {/* Helper Note */}
-        <div className="flex items-center gap-2 text-sm text-foreground/60">
-          <AlertCircle className="w-4 h-4 text-accent" />
-          <p>
-            Supports US, UK, Australia, Canada, UAE, and Kenya. Playwright rotates browser profiles, measures mobile load time, and detects Intercom, Drift, Tidio, & Botpress widgets.
-          </p>
+
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="flex items-center gap-2 text-sm text-foreground/60">
+            <AlertCircle className="w-4 h-4 text-accent shrink-0" />
+            <p>
+              Six regions, three sources, 1–50 leads per run. Re-running a query does not
+              duplicate leads you already have.
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={handleExportCsv}
+              disabled={leads.length === 0}
+              className="flex items-center justify-center gap-2 bg-surface border border-border text-foreground enabled:hover:text-white enabled:hover:border-foreground/40 px-4 py-2 rounded-none font-medium disabled:text-foreground/60 disabled:cursor-not-allowed transition-colors uppercase tracking-wider text-xs whitespace-nowrap"
+            >
+              <Download className="w-4 h-4" />
+              CSV
+            </button>
+            <button
+              type="button"
+              onClick={handleExportJson}
+              disabled={leads.length === 0}
+              className="flex items-center justify-center gap-2 bg-surface border border-border text-foreground enabled:hover:text-white enabled:hover:border-foreground/40 px-4 py-2 rounded-none font-medium disabled:text-foreground/60 disabled:cursor-not-allowed transition-colors uppercase tracking-wider text-xs whitespace-nowrap"
+            >
+              <FileJson className="w-4 h-4" />
+              JSON
+            </button>
+          </div>
         </div>
       </div>
 
-      {/* KPI Strip */}
       <KpiStrip leads={leads} />
 
-      {/* Results Section */}
       <div className="space-y-4">
         <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 flex-wrap">
             <h2 className="heading-6 text-foreground">Extracted leads</h2>
             <span className="px-2 py-0.5 text-xs font-mono bg-surface border border-border text-foreground/70">
-              {leads.length} found
+              {leads.length} shown
             </span>
+            {job && (
+              <span className="text-xs font-mono text-foreground/60">
+                {job.query} · {job.region} · {job.source}
+              </span>
+            )}
           </div>
-          <button 
-            type="button"
-            onClick={handleExportCSV}
-            disabled={leads.length === 0}
-            className="flex items-center gap-2 text-sm font-medium text-foreground/70 enabled:hover:text-white disabled:text-foreground/60 disabled:cursor-not-allowed transition-colors"
-          >
-            <Download className="w-4 h-4" />
-            Export CSV
-          </button>
         </div>
-        
-        <LeadResults leads={leads} region={region} />
+
+        <LeadResults
+          leads={leads}
+          region={job?.region ?? region}
+          emptyMessage={emptyLeadsMessage(scrapeState, Boolean(job))}
+        />
       </div>
     </div>
   );

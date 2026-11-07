@@ -8,6 +8,12 @@ never enables the auth bypass.
 
 import os
 
+from dotenv import load_dotenv
+
+# Local convenience: a repo-level `.env` is loaded for `uvicorn` runs. Existing
+# process variables always win, and a container without a `.env` is unaffected.
+load_dotenv()
+
 TRUTHY = {"1", "true", "yes", "on"}
 
 REGIONS = ("US", "GB", "AU", "CA", "AE", "KE")

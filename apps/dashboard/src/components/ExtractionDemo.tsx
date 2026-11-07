@@ -150,11 +150,10 @@ export function ExtractionDemo({ variant = "hero" }: ExtractionDemoProps): React
   };
 
   useEffect(() => {
-    if (typeof window === "undefined") return;
-
     if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
-      setFinalState();
-      return;
+      // Deferred so the effect itself does not synchronously set state.
+      const timer = setTimeout(setFinalState, 0);
+      return () => clearTimeout(timer);
     }
 
     const element = containerRef.current;
@@ -178,6 +177,9 @@ export function ExtractionDemo({ variant = "hero" }: ExtractionDemoProps): React
       observer.disconnect();
       clearAllTimers();
     };
+    // The sequence starts once per mount; runSequence is recreated each render and
+    // must not re-arm the observer.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const handleReplay = () => {
