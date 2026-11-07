@@ -15,14 +15,15 @@ export function KpiStrip({ leads }: KpiStripProps): React.ReactElement {
   const [displayMarkets, setDisplayMarkets] = useState(0);
 
   useEffect(() => {
-    if (typeof window === "undefined") return;
-
     if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
-      setDisplayTotal(kpis.total);
-      setDisplayMeanLoad(kpis.meanLoadMs);
-      setDisplayChatbotPct(kpis.withoutChatbotPct);
-      setDisplayMarkets(kpis.markets);
-      return;
+      // Deferred so the effect does not synchronously set state.
+      const timer = setTimeout(() => {
+        setDisplayTotal(kpis.total);
+        setDisplayMeanLoad(kpis.meanLoadMs);
+        setDisplayChatbotPct(kpis.withoutChatbotPct);
+        setDisplayMarkets(kpis.markets);
+      }, 0);
+      return () => clearTimeout(timer);
     }
 
     const duration = 400;
@@ -56,14 +57,14 @@ export function KpiStrip({ leads }: KpiStripProps): React.ReactElement {
 
   return (
     <div className="w-full space-y-2">
-      <div className="text-xs uppercase font-mono tracking-wider text-foreground/40 px-1">
+      <div className="text-xs uppercase font-mono tracking-wider text-foreground/60 px-1">
         Across the leads shown
       </div>
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         {/* Total Leads */}
         <div className="panel p-4 bg-surface border border-border">
-          <div className="text-xs font-mono uppercase text-foreground/50 mb-1">
+          <div className="text-xs font-mono uppercase text-foreground/60 mb-1">
             Leads found
           </div>
           <div className="text-2xl font-semibold font-mono text-white tabular-nums">
@@ -73,7 +74,7 @@ export function KpiStrip({ leads }: KpiStripProps): React.ReactElement {
 
         {/* Mean Mobile Load */}
         <div className="panel p-4 bg-surface border border-border">
-          <div className="text-xs font-mono uppercase text-foreground/50 mb-1">
+          <div className="text-xs font-mono uppercase text-foreground/60 mb-1">
             Mean mobile load
           </div>
           <div className="text-2xl font-semibold font-mono text-white tabular-nums">
@@ -83,7 +84,7 @@ export function KpiStrip({ leads }: KpiStripProps): React.ReactElement {
 
         {/* Share without Chatbot */}
         <div className="panel p-4 bg-surface border border-border">
-          <div className="text-xs font-mono uppercase text-foreground/50 mb-1">
+          <div className="text-xs font-mono uppercase text-foreground/60 mb-1">
             Share without chatbot
           </div>
           <div className="text-2xl font-semibold font-mono text-white tabular-nums">
@@ -93,7 +94,7 @@ export function KpiStrip({ leads }: KpiStripProps): React.ReactElement {
 
         {/* Markets Covered */}
         <div className="panel p-4 bg-surface border border-border">
-          <div className="text-xs font-mono uppercase text-foreground/50 mb-1">
+          <div className="text-xs font-mono uppercase text-foreground/60 mb-1">
             Markets covered
           </div>
           <div className="text-2xl font-semibold font-mono text-white tabular-nums">

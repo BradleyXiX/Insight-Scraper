@@ -1,9 +1,11 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Search, History, CreditCard, LayoutDashboard, Settings } from "lucide-react";
+import { Search, History, CreditCard, Settings } from "lucide-react";
+import { useAppAuth } from "@/lib/app-auth";
+import { useReducedMotion } from "@/lib/use-reduced-motion";
 
 export interface SidebarNavProps {
   onNavigate?: () => void;
@@ -15,6 +17,7 @@ interface NavDestination {
   label: string;
   icon: React.ComponentType<{ className?: string; strokeWidth?: number }>;
   exact?: boolean;
+  hostedOnly?: boolean;
 }
 
 const DESTINATIONS: NavDestination[] = [
@@ -33,11 +36,7 @@ const DESTINATIONS: NavDestination[] = [
     href: "/dashboard/billing",
     label: "Billing and plans",
     icon: CreditCard,
-  },
-  {
-    href: "/dashboard/pricing",
-    label: "Pricing tiers",
-    icon: LayoutDashboard,
+    hostedOnly: true,
   },
   {
     href: "/dashboard/settings",
@@ -48,20 +47,19 @@ const DESTINATIONS: NavDestination[] = [
 
 export function SidebarNav({ onNavigate, stagger = false }: SidebarNavProps): React.ReactElement {
   const pathname = usePathname();
-  const [isReducedMotion, setIsReducedMotion] = useState(false);
+  const isReducedMotion = useReducedMotion();
+  const { isLocal } = useAppAuth();
 
-  useEffect(() => {
-    if (typeof window !== "undefined") {
-      setIsReducedMotion(window.matchMedia("(prefers-reduced-motion: reduce)").matches);
-    }
-  }, []);
+  const destinations = DESTINATIONS.filter(
+    (item) => !(item.hostedOnly && isLocal),
+  );
 
   return (
     <nav className="flex flex-col gap-1 w-full" aria-label="Dashboard navigation">
-      <div className="text-xs uppercase tracking-wider font-mono text-foreground/40 px-3 py-2">
+      <div className="text-xs uppercase tracking-wider font-mono text-foreground/60 px-3 py-2">
         Navigation
       </div>
-      {DESTINATIONS.map((item, index) => {
+      {destinations.map((item, index) => {
         const isActive = item.exact
           ? pathname === item.href
           : pathname === item.href || pathname.startsWith(`${item.href}/`);

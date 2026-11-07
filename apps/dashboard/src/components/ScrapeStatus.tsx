@@ -5,8 +5,9 @@ import React, { useEffect, useState } from "react";
 export type ScrapeState =
   | { phase: "idle" }
   | { phase: "running"; startedAt: number }
-  | { phase: "done"; count: number }
-  | { phase: "empty" }
+  | { phase: "done"; count: number; note?: string }
+  | { phase: "empty"; note?: string }
+  | { phase: "cancelled" }
   | { phase: "error"; message: string };
 
 export interface ScrapeStatusProps {
@@ -26,7 +27,6 @@ export function ScrapeStatus({ state, onCancel, onRetry }: ScrapeStatusProps): R
 
   useEffect(() => {
     if (state.phase !== "running") return;
-    setNow(Date.now());
     const interval = setInterval(() => {
       setNow(Date.now());
     }, 1000);
@@ -65,9 +65,32 @@ export function ScrapeStatus({ state, onCancel, onRetry }: ScrapeStatusProps): R
         <div className="flex items-center gap-3">
           <span className="w-2 h-2 bg-foreground/40 inline-block" aria-hidden="true" />
           <p className="text-foreground/80 font-mono text-xs">
-            No leads found for this search. Try a broader search term or different region.
+            {state.note ??
+              "No leads found for this search. Try a broader search term or different region."}
           </p>
         </div>
+      </div>
+    );
+  }
+
+  if (state.phase === "cancelled") {
+    return (
+      <div className="panel p-4 bg-surface border border-border flex items-center justify-between text-sm">
+        <div className="flex items-center gap-3">
+          <span className="w-2 h-2 bg-foreground/40 inline-block" aria-hidden="true" />
+          <p className="text-foreground/80 font-mono text-xs">
+            Extraction cancelled. The worker stopped and no new leads were saved.
+          </p>
+        </div>
+        {onRetry && (
+          <button
+            type="button"
+            onClick={onRetry}
+            className="text-xs font-mono uppercase tracking-wider px-3 py-1 bg-surface border border-border text-white hover:border-foreground/50 cursor-pointer transition-colors"
+          >
+            Start again
+          </button>
+        )}
       </div>
     );
   }
@@ -121,12 +144,13 @@ export function ScrapeStatus({ state, onCancel, onRetry }: ScrapeStatusProps): R
         <span className="text-border-strong font-mono" aria-hidden="true">→</span>
 
         {/* Stage 3: Done */}
-        <span className={`flex items-center gap-1.5 ${isDone ? "text-accent font-semibold" : "text-foreground/40"}`}>
+        <span className={`flex items-center gap-1.5 ${isDone ? "text-accent font-semibold" : "text-foreground/60"}`}>
           <span className={`w-1.5 h-1.5 inline-block ${isDone ? "bg-accent" : "bg-foreground/30"}`} aria-hidden="true" />
           <span>Done</span>
           {isDone && (
             <span className="text-foreground/80 pl-1 font-normal">
               ({state.count} leads found)
+              {state.note ? ` — ${state.note}` : ""}
             </span>
           )}
         </span>

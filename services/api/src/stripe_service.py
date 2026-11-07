@@ -1,131 +1,100 @@
 import os
+
 import stripe
-from fastapi import Request, HTTPException
-from sqlalchemy.orm import Session
+from fastapi import HTTPException, Request
 from sqlalchemy import text
+from sqlalchemy.orm import Session
+
 from models import Subscription
 
-# Initialize Stripe
-stripe.api_key = os.getenv("STRIPE_SECRET_KEY", "sk_test_123")
-STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET", "whsec_123")
+# Never fall back to a placeholder key: a missing key must fail visibly, not silently
+# authenticate against a fake Stripe configuration.
+_stripe_api_key = os.getenv("STRIPE_SECRET_KEY", "").strip()
+if _stripe_api_key:
+    stripe.api_key = _stripe_api_key
+
 
 def get_tenant_status(db: Session, tenant_id: str) -> str:
-    """
-    Retrieves the current subscription status for a given tenant.
-    """
+    """Return the stored subscription status for a tenant, or 'inactive'."""
     subscription = db.query(Subscription).filter(Subscription.tenant_id == tenant_id).first()
     if not subscription:
         return "inactive"
     return subscription.status
 
+
 async def process_webhook(request: Request, db: Session):
-    """
-    Processes incoming Stripe webhooks for subscription updates.
-    """
+    """Process an incoming Stripe webhook for subscription updates."""
+    webhook_secret = os.getenv("STRIPE_WEBHOOK_SECRET", "").strip()
+    if not webhook_secret:
+        raise HTTPException(
+            status_code=503,
+            detail="Stripe webhooks are not configured on this API.",
+        )
+
     payload = await request.body()
     sig_header = request.headers.get("stripe-signature")
 
     try:
-        event = stripe.Webhook.construct_event(
-            payload, sig_header, STRIPE_WEBHOOK_SECRET
-        )
-    except ValueError as e:
-        # Invalid payload
-        raise HTTPException(status_code=400, detail="Invalid payload")
-    except stripe.error.SignatureVerificationError as e:
-        # Invalid signature
-        raise HTTPException(status_code=400, detail="Invalid signature")
+        event = stripe.Webhook.construct_event(payload, sig_header, webhook_secret)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="Invalid payload") from exc
+    except stripe.error.SignatureVerificationError as exc:
+        raise HTTPException(status_code=400, detail="Invalid signature") from exc
 
-    # Handle the event
     db.execute(text("SET LOCAL app.current_tenant = 'admin'"))
-    if event['type'] == 'customer.subscription.created' or event['type'] == 'customer.subscription.updated':
-        subscription_data = event['data']['object']
-        handle_subscription_update(db, subscription_data)
-        
-    elif event['type'] == 'customer.subscription.deleted':
-        subscription_data = event['data']['object']
-        handle_subscription_deleted(db, subscription_data)
-        
-    elif event['type'] == 'invoice.payment_failed':
-        invoice_data = event['data']['object']
-        handle_payment_failed(db, invoice_data)
+
+    if event["type"] in ("customer.subscription.created", "customer.subscription.updated"):
+        handle_subscription_update(db, event["data"]["object"])
+    elif event["type"] == "customer.subscription.deleted":
+        handle_subscription_deleted(db, event["data"]["object"])
+    elif event["type"] == "invoice.payment_failed":
+        handle_payment_failed(db, event["data"]["object"])
 
     return {"status": "success"}
 
+
 def handle_subscription_update(db: Session, subscription_data: dict):
-    stripe_customer_id = subscription_data.get('customer')
-    status = subscription_data.get('status')
-    stripe_sub_id = subscription_data.get('id')
-    
-    # Ideally, the tenant_id would be passed in the subscription metadata
-    metadata = subscription_data.get('metadata', {})
-    tenant_id = metadata.get('tenant_id')
-    
+    stripe_customer_id = subscription_data.get("customer")
+    status = subscription_data.get("status")
+    stripe_sub_id = subscription_data.get("id")
+
+    metadata = subscription_data.get("metadata", {})
+    tenant_id = metadata.get("tenant_id")
+
     if tenant_id:
         sub = db.query(Subscription).filter(Subscription.tenant_id == tenant_id).first()
         if sub:
             sub.status = status
             sub.stripe_subscription_id = stripe_sub_id
         else:
-            new_sub = Subscription(
-                tenant_id=tenant_id,
-                stripe_customer_id=stripe_customer_id,
-                stripe_subscription_id=stripe_sub_id,
-                status=status
+            db.add(
+                Subscription(
+                    tenant_id=tenant_id,
+                    stripe_customer_id=stripe_customer_id,
+                    stripe_subscription_id=stripe_sub_id,
+                    status=status,
+                )
             )
-            db.add(new_sub)
         db.commit()
 
+
 def handle_subscription_deleted(db: Session, subscription_data: dict):
-    stripe_sub_id = subscription_data.get('id')
+    stripe_sub_id = subscription_data.get("id")
     sub = db.query(Subscription).filter(Subscription.stripe_subscription_id == stripe_sub_id).first()
     if sub:
         sub.status = "canceled"
         db.commit()
 
+
 def handle_payment_failed(db: Session, invoice_data: dict):
-    stripe_sub_id = invoice_data.get('subscription')
+    stripe_sub_id = invoice_data.get("subscription")
     if stripe_sub_id:
-        sub = db.query(Subscription).filter(Subscription.stripe_subscription_id == stripe_sub_id).first()
+        sub = (
+            db.query(Subscription)
+            .filter(Subscription.stripe_subscription_id == stripe_sub_id)
+            .first()
+        )
         if sub:
-            # Implement 3-day grace period logic here if needed, 
-            # for now we'll mark as past_due
+            # A grace period belongs here once billing is a supported path.
             sub.status = "past_due"
             db.commit()
-
-def create_checkout_session(db: Session, tenant_id: str, price_id: str, success_url: str, cancel_url: str) -> str:
-    """
-    Creates a Stripe Checkout Session for a tenant to purchase a subscription.
-    Returns the Checkout Session URL.
-    """
-    subscription = db.query(Subscription).filter(Subscription.tenant_id == tenant_id).first()
-    customer_id = subscription.stripe_customer_id if subscription else None
-    
-    session_params = {
-        "payment_method_types": ["card"],
-        "line_items": [
-            {
-                "price": price_id,
-                "quantity": 1,
-            },
-        ],
-        "mode": "subscription",
-        "success_url": success_url,
-        "cancel_url": cancel_url,
-        "subscription_data": {
-            "metadata": {
-                "tenant_id": tenant_id
-            }
-        }
-    }
-    
-    if customer_id:
-        session_params["customer"] = customer_id
-    else:
-        session_params["client_reference_id"] = tenant_id
-
-    try:
-        checkout_session = stripe.checkout.Session.create(**session_params)
-        return checkout_session.url
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))

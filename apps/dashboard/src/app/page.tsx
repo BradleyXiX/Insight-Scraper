@@ -1,6 +1,6 @@
 import React from "react";
 import Link from "next/link";
-import { ArrowRight, Database, Gauge, MessageSquare, Zap, ShieldCheck } from "lucide-react";
+import { ArrowRight, Gauge, MessageSquare, ShieldCheck } from "lucide-react";
 import { Logo } from "@/components/Logo";
 import { ExtractionDemo } from "@/components/ExtractionDemo";
 import { TaglineReveal } from "@/components/TaglineReveal";
@@ -30,7 +30,7 @@ const FAQ_ITEMS = [
   },
   {
     q: "What does the Pro subscription cost?",
-    a: "The Pro tier costs $49 per month and includes unlimited searches, full signal extraction and priority queue access. You can cancel at any time.",
+    a: "The Pro tier costs $49 per month and includes up to 50 leads per search, full signal extraction and CSV export. Contact support to change or cancel your plan.",
   },
 ];
 

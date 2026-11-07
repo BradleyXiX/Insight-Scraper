@@ -21,10 +21,13 @@ services:
       # Limits Chromium memory footprint, restricts JS heap to 256MB, and blocks media assets
       - key: LOW_MEMORY_MODE
         value: "true"
-      - key: DEV_BYPASS_AUTH
-        value: "true"
-      - key: DEV_TENANT_ID
-        value: "local_operator"
+      - key: ENVIRONMENT
+        value: "production"
+      # Browser origins allowed to call this API. Add every deployed frontend origin.
+      - key: ALLOWED_ORIGINS
+        value: "https://insight-scraper.vercel.app"
+      # Auth bypass is development-only. The API refuses to start in production if
+      # DEV_BYPASS_AUTH is set, so it is deliberately not defined here.
       - key: DATABASE_URL
         fromDatabase:
           name: insight-scraper-db

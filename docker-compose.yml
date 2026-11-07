@@ -30,8 +30,11 @@ services:
     init: true
     environment:
       - DATABASE_URL=postgresql://user:password@postgres:5432/foundry
+      - ENVIRONMENT=development
+      # Local-only auth bypass. Never set ENVIRONMENT=production with this flag.
       - DEV_BYPASS_AUTH=${DEV_BYPASS_AUTH:-true}
       - DEV_TENANT_ID=${DEV_TENANT_ID:-local_operator}
+      - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-http://localhost:3000}
       - CLERK_FRONTEND_API=${CLERK_FRONTEND_API:-}
       - STRIPE_SECRET_KEY=${STRIPE_SECRET_KEY:-}
       - STRIPE_WEBHOOK_SECRET=${STRIPE_WEBHOOK_SECRET:-}
