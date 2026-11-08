@@ -15,6 +15,7 @@
 - Python 3.12 in CI; Node 20 in CI; runner `ubuntu-latest`.
 - `SCRAPE_CONCURRENCY` defaults to `1` on the hosted free tier and `2` locally; it is always configurable.
 - SQLite must keep working. Postgres-only tests carry `@pytest.mark.postgres` and are deselected by default.
+- **`init_db.py` returns before the `ALTER` block on SQLite**, so a local `.db` file created before a column was added will not gain it. When a task adds a column and local mode fails with "no such column", delete the local SQLite file and let it recreate — do not add a migration.
 - No new paid services, no external observability, no LLM call anywhere. Python stdlib `logging` and `json` only.
 - `create_all` plus idempotent `ALTER` stays. No Alembic.
 - Next.js 16: `src/proxy.ts`, never `middleware.ts`. `npm run lint:design` forbids arbitrary Tailwind values — use the existing tokens.
@@ -40,7 +41,9 @@
 - Create: `services/api/pytest.ini`
 
 **Interfaces:**
-- Produces: three required status checks named `backend`, `frontend`, `rls`.
+- Produces: two required status checks named `backend` and `frontend`. The third,
+  `rls`, is added by Task 4 — until Postgres tests exist, `pytest -m postgres`
+  collects nothing and exits `5`, which would make the job red for the whole branch.
 
 - [ ] **Step 1: Create `services/api/pytest.ini`**
 
@@ -56,7 +59,7 @@ Expected: collects the existing suite with no "unknown marker" warning.
 
 - [ ] **Step 2: Create `.github/workflows/ci.yml`**
 
-Three jobs. `backend`: `actions/checkout@v4`, `actions/setup-python@v5` (3.12, `cache: pip`, `cache-dependency-path: services/api/requirements-dev.txt`), `pip install -r services/api/requirements-dev.txt`, `pytest services/api/tests -q -m "not postgres"`. `frontend`: `actions/setup-node@v4` (20, `cache: npm`, `cache-dependency-path: apps/dashboard/package-lock.json`), `npm ci` in `apps/dashboard`, then `npm run lint:design`, `npm run lint`, `npx tsc --noEmit`, `npm test`, and `npm run build` with `NEXT_PUBLIC_AUTH_MODE: local`. `rls`: `services: postgres:16` with `POSTGRES_PASSWORD: postgres`, `POSTGRES_DB: foundry_test`, a `pg_isready` health check, `TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/foundry_test`, and `pytest services/api/tests -q -m postgres`. All jobs trigger on `push` to `main` and on `pull_request`, with `concurrency: group: ci-${{ github.ref }}` and `cancel-in-progress: true`.
+Two jobs. `backend`: `actions/checkout@v4`, `actions/setup-python@v5` (3.12, `cache: pip`, `cache-dependency-path: services/api/requirements-dev.txt`), `pip install -r services/api/requirements-dev.txt`, `pytest services/api/tests -q -m "not postgres"`. `frontend`: `actions/setup-node@v4` (20, `cache: npm`, `cache-dependency-path: apps/dashboard/package-lock.json`), `npm ci` in `apps/dashboard` (`working-directory: apps/dashboard`), then `npm run lint:design`, `npm run lint`, `npx tsc --noEmit`, `npm test`, and `npm run build` with `NEXT_PUBLIC_AUTH_MODE: local`. Both trigger on `push` to `main` and on `pull_request`, with `concurrency: group: ci-${{ github.ref }}` and `cancel-in-progress: true`.
 
 - [ ] **Step 3: Verify the workflow parses and the commands are honest**
 
@@ -74,7 +77,7 @@ git commit -m "ci: add backend, frontend and postgres RLS gates"
 
 - [ ] **Step 5: Record the manual step**
 
-Add to the PR description: branch protection must be enabled by the repository owner (Settings → Branches → Require status checks: `backend`, `frontend`, `rls`). CI reports until then; it does not block.
+Add to the PR description: branch protection must be enabled by the repository owner (Settings → Branches → Require status checks: `backend`, `frontend`, and `rls` once Task 4 adds it). CI reports until then; it does not block.
 
 ---
 
@@ -140,8 +143,14 @@ git commit -m "feat(api): structured JSON logs with request and job ids"
 - Test: `services/api/tests/test_queue.py`
 
 **Interfaces:**
-- Produces: `ScrapeJob.attempt: int`, `ScrapeJob.lease_expires_at: datetime | None`, `ScrapeJob.worker_id: str | None`, `ScrapeJob.batch_id: str | None`; `claim_job(job_id: str, worker_id: str, lease_seconds: int) -> dict | None`; `heartbeat(job_id: str, worker_id: str, lease_seconds: int) -> bool`; `recover_jobs(tenant_id: str, max_attempts: int = 3) -> dict[str, int]`.
+- Produces: `ScrapeJob.attempt: int`, `ScrapeJob.lease_expires_at: datetime | None`, `ScrapeJob.worker_id: str | None`, `ScrapeJob.batch_id: str | None`; `claim_job(tenant_id: str, job_id: str, worker_id: str, lease_seconds: int) -> dict | None`; `heartbeat(tenant_id: str, job_id: str, worker_id: str, lease_seconds: int) -> bool`; `recover_jobs(tenant_id: str, max_attempts: int = 3) -> dict[str, int]`.
 - Consumes: `tenant_session` from `db.py`.
+
+**Why `tenant_id` is a parameter now:** Task 4 deletes `admin_session`, and under RLS a
+statement cannot touch a row without `app.current_tenant` set. Threading `tenant_id`
+through every helper here means Task 4 only has to swap the session factory, not
+reshape the signatures again. `execute_job(job_id, tenant_id)` and
+`start_job(job_id, tenant_id)` are therefore introduced in this task.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -169,11 +178,11 @@ Expected: FAIL — `ImportError: cannot import name 'claim_job'`
 
 - [ ] **Step 4: Implement claim, heartbeat, recover in `jobs.py`**
 
-`claim_job` is the single guarded `UPDATE ... WHERE id = :job_id AND status = 'queued' AND cancel_requested = false RETURNING ...`. `heartbeat` updates `lease_expires_at` only where `id` and `worker_id` match. `recover_jobs(tenant_id)` runs inside `tenant_session(tenant_id)` and handles three cases: expired lease with `attempt < max_attempts` → `queued`; expired with `attempt >= max_attempts` → `failed` with "Gave up after N attempts"; `cancel_requested` on a queued row → `cancelled`.
+`claim_job` is the single guarded `UPDATE ... WHERE id = :job_id AND status = 'queued' AND cancel_requested = false RETURNING ...`. If it matches nothing, run one further guarded update: `WHERE id = :job_id AND status = 'queued' AND cancel_requested = true` → set `status='cancelled'`, `finished_at=now`, `error='Cancelled before it started.'`. That is what makes `test_claim_skips_a_cancelled_queued_job` pass without ever launching a browser. `heartbeat` updates `lease_expires_at` only where `id` and `worker_id` match, in its own short-lived `tenant_session` — never a session held across the scrape. `recover_jobs(tenant_id)` runs inside `tenant_session(tenant_id)` and handles three cases: expired lease with `attempt < max_attempts` → `queued`; expired with `attempt >= max_attempts` → `failed` with "Gave up after N attempts"; `cancel_requested` on a queued row → `cancelled`.
 
 - [ ] **Step 5: Replace the old lifecycle**
 
-Delete `mark_stale_jobs_failed`. `execute_job` claims first and returns early on `None`. Start a heartbeat `asyncio` task around `run_worker_async` and cancel it in `finally`. Call `recover_jobs` at startup for the configured local tenant, and at the top of `GET /api/jobs`. Wrap the worker in `asyncio.Semaphore(int(os.getenv("SCRAPE_CONCURRENCY", "1")))`.
+Delete `mark_stale_jobs_failed`. `execute_job(job_id, tenant_id)` claims first and returns early on `None`. `start_job(job_id, tenant_id)` passes the tenant through, and every caller of `start_job` in `main.py` already has it. Start a heartbeat `asyncio` task around `run_worker_async` and cancel it in `finally` — it must be a separate task, because awaiting the subprocess never yields to a coroutine that would touch the database. Call `recover_jobs` at startup for the configured local tenant, and at the top of `GET /api/jobs`. Wrap the worker in `asyncio.Semaphore(int(os.getenv("SCRAPE_CONCURRENCY", "1")))`.
 
 - [ ] **Step 6: Run to verify passing**
 
@@ -222,13 +231,17 @@ Expected: the grep test FAILS (the string `admin_session` is still present); the
 
 - [ ] **Step 3: Delete the bypass**
 
-`init_db.py`: the policy becomes `USING (tenant_id = current_setting('app.current_tenant', true))`. Remove the `OR ... = 'admin'` branch; keep `FORCE ROW LEVEL SECURITY`. `db.py`: delete `admin_session` and `_set_tenant`'s admin path. `jobs.py`: replace every `admin_session()` with `tenant_session(tenant_id)`; keep the explicit `job.tenant_id != tenant_id` checks as defence in depth for SQLite. Thread `tenant_id` through `start_job` into `execute_job`.
+`init_db.py`: the policy becomes `USING (tenant_id = current_setting('app.current_tenant', true))`. Remove the `OR ... = 'admin'` branch; keep `FORCE ROW LEVEL SECURITY`. `db.py`: delete `admin_session`. `jobs.py`: replace every `admin_session()` with `tenant_session(tenant_id)`; keep the explicit `job.tenant_id != tenant_id` checks as defence in depth for SQLite. `start_job` and `execute_job` already take `tenant_id` from Task 3 — if they do not, fix that first.
 
-- [ ] **Step 4: Make the Postgres suite runnable**
+- [ ] **Step 4: Add the `rls` CI job**
+
+Append to `.github/workflows/ci.yml` a third job: `services: postgres:16` with `POSTGRES_PASSWORD: postgres`, `POSTGRES_DB: foundry_test`, a `pg_isready` health check (`--health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s --health-retries 10`), env `TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/foundry_test`, and `pytest services/api/tests -q -m postgres`. Add it to the same concurrency group and triggers. It goes in this task, not Task 1, because before now the marker selects nothing and pytest exits `5`.
+
+- [ ] **Step 5: Make the Postgres suite runnable**
 
 `conftest.py`: when `TEST_DATABASE_URL` is set, use it instead of the temp SQLite file, call `init_db.init_db()`, and let `@pytest.mark.postgres` tests run; otherwise skip them via a `pytest_collection_modifyitems` hook. Do not change the hermetic `_apply_test_env()` behaviour for the default path.
 
-- [ ] **Step 5: Run both ways**
+- [ ] **Step 6: Run both ways**
 
 Run: `pytest services/api/tests -q`
 Expected: all non-Postgres tests pass, Postgres tests skip.
@@ -236,10 +249,10 @@ Expected: all non-Postgres tests pass, Postgres tests skip.
 Run: `TEST_DATABASE_URL=postgresql://postgres:postgres@localhost:5432/foundry_test pytest services/api/tests -q -m postgres` (Docker Desktop must be running).
 Expected: 3 Postgres tests pass.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
-git add services/api/src/db.py services/api/src/init_db.py services/api/src/jobs.py services/api/src/main.py services/api/tests/test_rls.py services/api/tests/conftest.py
+git add .github/workflows/ci.yml services/api/src/db.py services/api/src/init_db.py services/api/src/jobs.py services/api/src/main.py services/api/tests/test_rls.py services/api/tests/conftest.py
 git commit -m "fix(api): remove the RLS admin bypass and scope every job query to its tenant"
 ```
 
