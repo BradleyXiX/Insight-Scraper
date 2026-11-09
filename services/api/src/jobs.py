@@ -8,7 +8,10 @@ queue is deliberately out of scope until the hosted phase.
 import asyncio
 import logging
 import os
-from datetime import datetime, timezone
+import uuid
+from datetime import datetime, timedelta, timezone
+
+from sqlalchemy import text
 
 from db import admin_session, tenant_session
 from logging_setup import log_event
@@ -19,6 +22,7 @@ TERMINAL_STATUSES = {"succeeded", "empty", "failed", "cancelled"}
 
 _running: dict[str, asyncio.subprocess.Process] = {}
 _tasks: set[asyncio.Task] = set()
+_SEM = asyncio.Semaphore(int(os.getenv("SCRAPE_CONCURRENCY", "1")))
 
 
 def utcnow() -> datetime:
@@ -228,6 +232,7 @@ def _save_leads(
             job.duplicate_count = duplicates
             job.status = "succeeded" if inserted > 0 else "empty"
             job.finished_at = utcnow()
+            job.lease_expires_at = None
 
         return inserted, duplicates
 
@@ -240,6 +245,7 @@ def _finish(job_id: str, status: str, error: str | None = None) -> None:
         job.status = status
         job.error = error
         job.finished_at = utcnow()
+        job.lease_expires_at = None
 
 
 def _is_cancelled(job_id: str) -> bool:
@@ -248,40 +254,166 @@ def _is_cancelled(job_id: str) -> bool:
         return bool(job is not None and (job.cancel_requested or job.status == "cancelled"))
 
 
-async def execute_job(job_id: str) -> None:
-    """Run one job to completion and record the outcome."""
-    with admin_session() as db:
-        job = db.get(ScrapeJob, job_id)
-        if job is None or job.status != "queued":
-            return
-        tenant_id = job.tenant_id
-        if job.cancel_requested:
-            job.status = "cancelled"
-            job.error = "Cancelled before it started."
-            job.finished_at = utcnow()
+def claim_job(tenant_id: str, job_id: str, worker_id: str, lease_seconds: int) -> dict | None:
+    now = utcnow()
+    lease_until = now + timedelta(seconds=lease_seconds)
+    with tenant_session(tenant_id) as db:
+        stmt = text(
+            """
+            UPDATE scrape_jobs
+               SET status = 'running',
+                   worker_id = :worker_id,
+                   lease_expires_at = :lease_until,
+                   attempt = attempt + 1,
+                   started_at = COALESCE(started_at, :now)
+             WHERE id = :job_id
+               AND status = 'queued'
+               AND cancel_requested = false
+            RETURNING tenant_id, query, region, source, "limit", attempt
+            """
+        )
+        result = db.execute(
+            stmt,
+            {
+                "worker_id": worker_id,
+                "lease_until": lease_until,
+                "now": now,
+                "job_id": job_id,
+            },
+        ).mappings().first()
+
+        if result is not None:
+            log_event("job.claimed", job_id=job_id, tenant_id=tenant_id)
+            return dict(result)
+
+        cancel_stmt = text(
+            """
+            UPDATE scrape_jobs
+               SET status = 'cancelled',
+                   finished_at = :now,
+                   error = 'Cancelled before it started.'
+             WHERE id = :job_id
+               AND status = 'queued'
+               AND cancel_requested = true
+            RETURNING id
+            """
+        )
+        cancelled = db.execute(cancel_stmt, {"now": now, "job_id": job_id}).first()
+        if cancelled is not None:
             log_event("job.cancelled", job_id=job_id, tenant_id=tenant_id)
-            return
 
-        job.status = "running"
-        job.started_at = utcnow()
-        started_at = job.started_at
-        params = {
-            "tenant_id": job.tenant_id,
-            "query": job.query,
-            "region": job.region,
-            "source": job.source,
-            "limit": job.limit,
-        }
+        return None
 
-    log_event("job.claimed", job_id=job_id, tenant_id=tenant_id)
+
+def heartbeat(tenant_id: str, job_id: str, worker_id: str, lease_seconds: int) -> bool:
+    now = utcnow()
+    lease_until = now + timedelta(seconds=lease_seconds)
+    with tenant_session(tenant_id) as db:
+        stmt = text(
+            """
+            UPDATE scrape_jobs
+               SET lease_expires_at = :lease_until
+             WHERE id = :job_id
+               AND worker_id = :worker_id
+               AND status = 'running'
+            """
+        )
+        res = db.execute(
+            stmt,
+            {
+                "lease_until": lease_until,
+                "job_id": job_id,
+                "worker_id": worker_id,
+            },
+        )
+        return res.rowcount > 0
+
+
+def recover_jobs(tenant_id: str, max_attempts: int = 3) -> dict[str, int]:
+    now = utcnow()
+    requeued = 0
+    failed = 0
+    cancelled = 0
+
+    with tenant_session(tenant_id) as db:
+        expired_jobs = (
+            db.query(ScrapeJob)
+            .filter(
+                ScrapeJob.tenant_id == tenant_id,
+                ScrapeJob.status == "running",
+                ScrapeJob.lease_expires_at < now,
+            )
+            .all()
+        )
+        for job in expired_jobs:
+            if job.attempt < max_attempts:
+                job.status = "queued"
+                job.lease_expires_at = None
+                job.worker_id = None
+                requeued += 1
+                log_event("job.requeued", job_id=job.id, tenant_id=tenant_id, attempt=job.attempt)
+            else:
+                job.status = "failed"
+                job.finished_at = now
+                job.lease_expires_at = None
+                job.error = f"Gave up after {max_attempts} attempts."
+                failed += 1
+                log_event("job.failed", level=logging.WARNING, job_id=job.id, tenant_id=tenant_id, error=job.error)
+
+        cancelled_jobs = (
+            db.query(ScrapeJob)
+            .filter(
+                ScrapeJob.tenant_id == tenant_id,
+                ScrapeJob.status == "queued",
+                ScrapeJob.cancel_requested.is_(True),
+            )
+            .all()
+        )
+        for job in cancelled_jobs:
+            job.status = "cancelled"
+            job.finished_at = now
+            job.lease_expires_at = None
+            job.error = "Cancelled before it started."
+            cancelled += 1
+            log_event("job.cancelled", job_id=job.id, tenant_id=tenant_id)
+
+    return {"requeued": requeued, "failed": failed, "cancelled": cancelled}
+
+
+async def _heartbeat_loop(tenant_id: str, job_id: str, worker_id: str, lease_seconds: int) -> None:
+    interval = max(5, lease_seconds // 4)
+    while True:
+        await asyncio.sleep(interval)
+        try:
+            ok = heartbeat(tenant_id, job_id, worker_id, lease_seconds)
+            if not ok:
+                break
+        except Exception:
+            pass
+
+
+async def execute_job(job_id: str, tenant_id: str) -> None:
+    """Run one job to completion and record the outcome."""
+    worker_id = f"worker_{uuid.uuid4().hex[:8]}"
+    lease_seconds = int(os.getenv("SCRAPE_LEASE_SECONDS", "60"))
+
+    claim = claim_job(tenant_id, job_id, worker_id, lease_seconds)
+    if claim is None:
+        return
+
+    query = claim["query"]
+    region = claim["region"]
+    source = claim["source"]
+    limit = claim["limit"]
+
     log_event(
         "job.started",
         job_id=job_id,
         tenant_id=tenant_id,
-        query=params["query"],
-        region=params["region"],
-        source=params["source"],
-        limit=params["limit"],
+        query=query,
+        region=region,
+        source=source,
+        limit=limit,
     )
 
     def register(process: asyncio.subprocess.Process) -> None:
@@ -290,16 +422,22 @@ async def execute_job(job_id: str) -> None:
             process.terminate()
 
     timeout = int(os.getenv("SCRAPE_TIMEOUT_SECONDS", "300"))
+    started_at = utcnow()
+
+    heartbeat_task = asyncio.create_task(
+        _heartbeat_loop(tenant_id, job_id, worker_id, lease_seconds)
+    )
 
     try:
-        leads = await run_worker_async(
-            params["query"],
-            params["region"],
-            params["source"],
-            params["limit"],
-            timeout_seconds=timeout,
-            on_process=register,
-        )
+        async with _SEM:
+            leads = await run_worker_async(
+                query,
+                region,
+                source,
+                limit,
+                timeout_seconds=timeout,
+                on_process=register,
+            )
     except ScraperTimeout as exc:
         if _is_cancelled(job_id):
             _finish(job_id, "cancelled", "Cancelled by the operator.")
@@ -315,8 +453,6 @@ async def execute_job(job_id: str) -> None:
             )
         return
     except ScraperError as exc:
-        # Terminating a cancelled worker makes it exit non-zero, which surfaces as a
-        # ScraperError. Report the cancellation, not a spurious failure.
         if _is_cancelled(job_id):
             _finish(job_id, "cancelled", "Cancelled by the operator.")
             log_event("job.cancelled", job_id=job_id, tenant_id=tenant_id)
@@ -347,6 +483,11 @@ async def execute_job(job_id: str) -> None:
         return
     finally:
         _running.pop(job_id, None)
+        heartbeat_task.cancel()
+        try:
+            await heartbeat_task
+        except asyncio.CancelledError:
+            pass
 
     if _is_cancelled(job_id):
         _finish(job_id, "cancelled", "Cancelled by the operator.")
@@ -354,7 +495,7 @@ async def execute_job(job_id: str) -> None:
         return
 
     try:
-        inserted, duplicates = _save_leads(params["tenant_id"], job_id, params["query"], leads)
+        inserted, duplicates = _save_leads(tenant_id, job_id, query, leads)
         duration_ms = int((utcnow() - started_at).total_seconds() * 1000)
         status = "succeeded" if inserted > 0 else "empty"
         log_event(
@@ -378,26 +519,9 @@ async def execute_job(job_id: str) -> None:
         )
 
 
-def start_job(job_id: str) -> None:
+def start_job(job_id: str, tenant_id: str) -> None:
     """Schedule a queued job on the current event loop."""
-    task = asyncio.create_task(execute_job(job_id))
+    task = asyncio.create_task(execute_job(job_id, tenant_id))
     _tasks.add(task)
     task.add_done_callback(_tasks.discard)
 
-
-def mark_stale_jobs_failed() -> None:
-    """After a restart, no in-memory worker exists for queued/running jobs."""
-    try:
-        with admin_session() as db:
-            db.query(ScrapeJob).filter(
-                ScrapeJob.status.in_(("queued", "running"))
-            ).update(
-                {
-                    ScrapeJob.status: "failed",
-                    ScrapeJob.error: "The API restarted before this job finished.",
-                    ScrapeJob.finished_at: utcnow(),
-                },
-                synchronize_session=False,
-            )
-    except Exception as exc:  # noqa: BLE001 - startup must not fail on a brand-new DB
-        print(f"Note: could not mark stale jobs failed: {exc}")

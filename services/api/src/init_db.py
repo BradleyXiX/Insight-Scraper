@@ -35,6 +35,13 @@ LEAD_COLUMNS = (
     "job_id VARCHAR(36)",
 )
 
+JOB_COLUMNS = (
+    "attempt INTEGER NOT NULL DEFAULT 0",
+    "lease_expires_at TIMESTAMP",
+    "worker_id VARCHAR",
+    "batch_id VARCHAR(36)",
+)
+
 
 def init_db(max_retries: int = 10, retry_delay: int = 2) -> None:
     print("Connecting to database and creating tables...")
@@ -69,6 +76,14 @@ def init_db(max_retries: int = 10, retry_delay: int = 2) -> None:
                 )
             except Exception as exc:  # noqa: BLE001 - column may already exist
                 print(f"Note: could not ensure leads column '{column}': {exc}")
+
+        for column in JOB_COLUMNS:
+            try:
+                connection.execute(
+                    text(f"ALTER TABLE scrape_jobs ADD COLUMN IF NOT EXISTS {column};")
+                )
+            except Exception as exc:  # noqa: BLE001 - column may already exist
+                print(f"Note: could not ensure scrape_jobs column '{column}': {exc}")
 
         for table_name in TENANT_TABLES:
             try:

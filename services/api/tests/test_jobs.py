@@ -21,7 +21,7 @@ def create_job(**overrides) -> ScrapeJob:
 
 
 def run_job(job_id: str) -> None:
-    asyncio.run(jobs.execute_job(job_id))
+    asyncio.run(jobs.execute_job(job_id, TENANT))
 
 
 def make_lead(name: str = "Acme Coffee", website: str = "https://acme.example") -> dict:
@@ -259,10 +259,15 @@ def test_rerun_copies_parameters_into_a_new_job(authed_client, local_mode, no_au
 
 def test_stale_jobs_are_failed_on_restart():
     job = create_job()
+    with admin_session() as db:
+        j = db.get(ScrapeJob, job.id)
+        j.status = "running"
+        j.lease_expires_at = jobs.utcnow() - jobs.timedelta(seconds=10)
+        j.attempt = 3
 
-    jobs.mark_stale_jobs_failed()
+    jobs.recover_jobs(TENANT)
 
     stored = jobs.get_job(TENANT, job.id)
     assert stored is not None
     assert stored.status == "failed"
-    assert "restarted" in (stored.error or "")
+    assert "attempts" in (stored.error or "")

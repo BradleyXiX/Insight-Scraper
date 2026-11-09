@@ -32,7 +32,7 @@ DEFAULT_SETTINGS = {
 async def lifespan(_: FastAPI):
     logging_setup.configure_logging()
     config.validate_startup()
-    jobs.mark_stale_jobs_failed()
+    jobs.recover_jobs(config.dev_tenant_id())
     yield
 
 
@@ -141,7 +141,7 @@ async def start_scrape(
     _require_entitlement(db, tenant_id)
 
     job = jobs.create_job(tenant_id, query, region, source, limit)
-    jobs.start_job(job.id)
+    jobs.start_job(job.id, tenant_id)
 
     return {"job": jobs.serialize_job(job)}
 
@@ -153,6 +153,7 @@ async def list_scrape_jobs(
     tenant_id: str = Depends(verify_clerk_token),
 ):
     """Return the tenant's run history, newest first."""
+    jobs.recover_jobs(tenant_id)
     rows, total = jobs.list_jobs(tenant_id, limit, offset)
     return {
         "jobs": [jobs.serialize_job(job) for job in rows],
@@ -219,7 +220,7 @@ async def rerun_scrape_job(
         existing.source,
         existing.limit,
     )
-    jobs.start_job(job.id)
+    jobs.start_job(job.id, tenant_id)
     return {"job": jobs.serialize_job(job)}
 
 
