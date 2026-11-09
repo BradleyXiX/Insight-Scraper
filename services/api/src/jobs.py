@@ -6,10 +6,12 @@ queue is deliberately out of scope until the hosted phase.
 """
 
 import asyncio
+import logging
 import os
 from datetime import datetime, timezone
 
 from db import admin_session, tenant_session
+from logging_setup import log_event
 from models import Lead, ScrapeJob
 from scraper_runner import ScraperError, ScraperTimeout, run_worker_async
 
@@ -64,6 +66,15 @@ def create_job(
         db.add(job)
         db.flush()
         db.refresh(job)
+        log_event(
+            "job.queued",
+            job_id=job.id,
+            tenant_id=tenant_id,
+            query=query,
+            region=region,
+            source=source,
+            limit=limit,
+        )
         return job
 
 
@@ -126,6 +137,7 @@ def request_cancel(tenant_id: str, job_id: str) -> ScrapeJob | None:
                 job.status = "cancelled"
                 job.finished_at = utcnow()
                 job.error = "Cancelled before it started."
+                log_event("job.cancelled", job_id=job_id, tenant_id=tenant_id)
 
         was_running = job.status == "running"
         db.flush()
@@ -242,14 +254,17 @@ async def execute_job(job_id: str) -> None:
         job = db.get(ScrapeJob, job_id)
         if job is None or job.status != "queued":
             return
+        tenant_id = job.tenant_id
         if job.cancel_requested:
             job.status = "cancelled"
             job.error = "Cancelled before it started."
             job.finished_at = utcnow()
+            log_event("job.cancelled", job_id=job_id, tenant_id=tenant_id)
             return
 
         job.status = "running"
         job.started_at = utcnow()
+        started_at = job.started_at
         params = {
             "tenant_id": job.tenant_id,
             "query": job.query,
@@ -257,6 +272,17 @@ async def execute_job(job_id: str) -> None:
             "source": job.source,
             "limit": job.limit,
         }
+
+    log_event("job.claimed", job_id=job_id, tenant_id=tenant_id)
+    log_event(
+        "job.started",
+        job_id=job_id,
+        tenant_id=tenant_id,
+        query=params["query"],
+        region=params["region"],
+        source=params["source"],
+        limit=params["limit"],
+    )
 
     def register(process: asyncio.subprocess.Process) -> None:
         _running[job_id] = process
@@ -277,34 +303,79 @@ async def execute_job(job_id: str) -> None:
     except ScraperTimeout as exc:
         if _is_cancelled(job_id):
             _finish(job_id, "cancelled", "Cancelled by the operator.")
+            log_event("job.cancelled", job_id=job_id, tenant_id=tenant_id)
         else:
             _finish(job_id, "failed", str(exc))
+            log_event(
+                "job.failed",
+                level=logging.WARNING,
+                job_id=job_id,
+                tenant_id=tenant_id,
+                error=str(exc),
+            )
         return
     except ScraperError as exc:
         # Terminating a cancelled worker makes it exit non-zero, which surfaces as a
         # ScraperError. Report the cancellation, not a spurious failure.
         if _is_cancelled(job_id):
             _finish(job_id, "cancelled", "Cancelled by the operator.")
+            log_event("job.cancelled", job_id=job_id, tenant_id=tenant_id)
         else:
             _finish(job_id, "failed", str(exc))
+            log_event(
+                "job.failed",
+                level=logging.WARNING,
+                job_id=job_id,
+                tenant_id=tenant_id,
+                error=str(exc),
+            )
         return
     except Exception as exc:  # noqa: BLE001 - a job must never stay "running"
         if _is_cancelled(job_id):
             _finish(job_id, "cancelled", "Cancelled by the operator.")
+            log_event("job.cancelled", job_id=job_id, tenant_id=tenant_id)
         else:
-            _finish(job_id, "failed", f"Unexpected worker error: {exc}")
+            msg = f"Unexpected worker error: {exc}"
+            _finish(job_id, "failed", msg)
+            log_event(
+                "job.failed",
+                level=logging.WARNING,
+                job_id=job_id,
+                tenant_id=tenant_id,
+                error=msg,
+            )
         return
     finally:
         _running.pop(job_id, None)
 
     if _is_cancelled(job_id):
         _finish(job_id, "cancelled", "Cancelled by the operator.")
+        log_event("job.cancelled", job_id=job_id, tenant_id=tenant_id)
         return
 
     try:
-        _save_leads(params["tenant_id"], job_id, params["query"], leads)
+        inserted, duplicates = _save_leads(params["tenant_id"], job_id, params["query"], leads)
+        duration_ms = int((utcnow() - started_at).total_seconds() * 1000)
+        status = "succeeded" if inserted > 0 else "empty"
+        log_event(
+            "job.finished",
+            job_id=job_id,
+            tenant_id=tenant_id,
+            status=status,
+            leads=inserted,
+            duplicates=duplicates,
+            duration_ms=duration_ms,
+        )
     except Exception as exc:  # noqa: BLE001 - surface the save failure on the job
-        _finish(job_id, "failed", f"Could not save leads: {exc}")
+        msg = f"Could not save leads: {exc}"
+        _finish(job_id, "failed", msg)
+        log_event(
+            "job.failed",
+            level=logging.WARNING,
+            job_id=job_id,
+            tenant_id=tenant_id,
+            error=msg,
+        )
 
 
 def start_job(job_id: str) -> None:

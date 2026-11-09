@@ -1,4 +1,6 @@
 import os
+import time
+import uuid
 from contextlib import asynccontextmanager
 from typing import Literal
 
@@ -10,6 +12,7 @@ from sqlalchemy.orm import Session
 
 import config
 import jobs
+import logging_setup
 import stripe_service
 from auth import verify_clerk_token
 from db import engine, get_db, tenant_session
@@ -27,12 +30,36 @@ DEFAULT_SETTINGS = {
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
+    logging_setup.configure_logging()
     config.validate_startup()
     jobs.mark_stale_jobs_failed()
     yield
 
 
 app = FastAPI(title="Insight Scraper API", lifespan=lifespan)
+
+
+@app.middleware("http")
+async def request_logging_middleware(request: Request, call_next):
+    req_id = uuid.uuid4().hex[:8]
+    token = logging_setup.set_request_id(req_id)
+    start_time = time.perf_counter()
+    status_code = 500
+    try:
+        response = await call_next(request)
+        status_code = response.status_code
+        return response
+    finally:
+        duration_ms = int((time.perf_counter() - start_time) * 1000)
+        logging_setup.log_event(
+            "request.finished",
+            method=request.method,
+            path=request.url.path,
+            status_code=status_code,
+            duration_ms=duration_ms,
+        )
+        logging_setup.reset_request_id(token)
+
 
 app.add_middleware(
     CORSMiddleware,
