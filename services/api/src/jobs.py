@@ -13,7 +13,7 @@ from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import text
 
-from db import admin_session, tenant_session
+from db import tenant_session
 from logging_setup import log_event
 from models import Lead, ScrapeJob
 from scraper_runner import ScraperError, ScraperTimeout, run_worker_async
@@ -58,7 +58,7 @@ def create_job(
     source: str,
     limit: int,
 ) -> ScrapeJob:
-    with admin_session() as db:
+    with tenant_session(tenant_id) as db:
         job = ScrapeJob(
             tenant_id=tenant_id,
             query=query,
@@ -83,7 +83,7 @@ def create_job(
 
 
 def get_job(tenant_id: str, job_id: str) -> ScrapeJob | None:
-    with admin_session() as db:
+    with tenant_session(tenant_id) as db:
         job = db.get(ScrapeJob, job_id)
         if job is None or job.tenant_id != tenant_id:
             return None
@@ -91,7 +91,7 @@ def get_job(tenant_id: str, job_id: str) -> ScrapeJob | None:
 
 
 def list_jobs(tenant_id: str, limit: int, offset: int) -> tuple[list[ScrapeJob], int]:
-    with admin_session() as db:
+    with tenant_session(tenant_id) as db:
         query = db.query(ScrapeJob).filter(ScrapeJob.tenant_id == tenant_id)
         total = query.count()
         jobs = (
@@ -104,7 +104,7 @@ def list_jobs(tenant_id: str, limit: int, offset: int) -> tuple[list[ScrapeJob],
 
 
 def delete_job(tenant_id: str, job_id: str) -> bool:
-    with admin_session() as db:
+    with tenant_session(tenant_id) as db:
         job = db.get(ScrapeJob, job_id)
         if job is None or job.tenant_id != tenant_id:
             return False
@@ -116,7 +116,7 @@ def delete_job(tenant_id: str, job_id: str) -> bool:
 
 
 def leads_for_job(tenant_id: str, job_id: str) -> list[Lead] | None:
-    with admin_session() as db:
+    with tenant_session(tenant_id) as db:
         job = db.get(ScrapeJob, job_id)
         if job is None or job.tenant_id != tenant_id:
             return None
@@ -130,7 +130,7 @@ def leads_for_job(tenant_id: str, job_id: str) -> list[Lead] | None:
 
 def request_cancel(tenant_id: str, job_id: str) -> ScrapeJob | None:
     """Mark a job cancelled and terminate its worker when one is running."""
-    with admin_session() as db:
+    with tenant_session(tenant_id) as db:
         job = db.get(ScrapeJob, job_id)
         if job is None or job.tenant_id != tenant_id:
             return None
@@ -237,8 +237,8 @@ def _save_leads(
         return inserted, duplicates
 
 
-def _finish(job_id: str, status: str, error: str | None = None) -> None:
-    with admin_session() as db:
+def _finish(tenant_id: str, job_id: str, status: str, error: str | None = None) -> None:
+    with tenant_session(tenant_id) as db:
         job = db.get(ScrapeJob, job_id)
         if job is None:
             return
@@ -248,8 +248,8 @@ def _finish(job_id: str, status: str, error: str | None = None) -> None:
         job.lease_expires_at = None
 
 
-def _is_cancelled(job_id: str) -> bool:
-    with admin_session() as db:
+def _is_cancelled(tenant_id: str, job_id: str) -> bool:
+    with tenant_session(tenant_id) as db:
         job = db.get(ScrapeJob, job_id)
         return bool(job is not None and (job.cancel_requested or job.status == "cancelled"))
 
@@ -418,7 +418,7 @@ async def execute_job(job_id: str, tenant_id: str) -> None:
 
     def register(process: asyncio.subprocess.Process) -> None:
         _running[job_id] = process
-        if _is_cancelled(job_id):
+        if _is_cancelled(tenant_id, job_id):
             process.terminate()
 
     timeout = int(os.getenv("SCRAPE_TIMEOUT_SECONDS", "300"))
@@ -439,11 +439,11 @@ async def execute_job(job_id: str, tenant_id: str) -> None:
                 on_process=register,
             )
     except ScraperTimeout as exc:
-        if _is_cancelled(job_id):
-            _finish(job_id, "cancelled", "Cancelled by the operator.")
+        if _is_cancelled(tenant_id, job_id):
+            _finish(tenant_id, job_id, "cancelled", "Cancelled by the operator.")
             log_event("job.cancelled", job_id=job_id, tenant_id=tenant_id)
         else:
-            _finish(job_id, "failed", str(exc))
+            _finish(tenant_id, job_id, "failed", str(exc))
             log_event(
                 "job.failed",
                 level=logging.WARNING,
@@ -453,11 +453,11 @@ async def execute_job(job_id: str, tenant_id: str) -> None:
             )
         return
     except ScraperError as exc:
-        if _is_cancelled(job_id):
-            _finish(job_id, "cancelled", "Cancelled by the operator.")
+        if _is_cancelled(tenant_id, job_id):
+            _finish(tenant_id, job_id, "cancelled", "Cancelled by the operator.")
             log_event("job.cancelled", job_id=job_id, tenant_id=tenant_id)
         else:
-            _finish(job_id, "failed", str(exc))
+            _finish(tenant_id, job_id, "failed", str(exc))
             log_event(
                 "job.failed",
                 level=logging.WARNING,
@@ -467,12 +467,12 @@ async def execute_job(job_id: str, tenant_id: str) -> None:
             )
         return
     except Exception as exc:  # noqa: BLE001 - a job must never stay "running"
-        if _is_cancelled(job_id):
-            _finish(job_id, "cancelled", "Cancelled by the operator.")
+        if _is_cancelled(tenant_id, job_id):
+            _finish(tenant_id, job_id, "cancelled", "Cancelled by the operator.")
             log_event("job.cancelled", job_id=job_id, tenant_id=tenant_id)
         else:
             msg = f"Unexpected worker error: {exc}"
-            _finish(job_id, "failed", msg)
+            _finish(tenant_id, job_id, "failed", msg)
             log_event(
                 "job.failed",
                 level=logging.WARNING,
@@ -489,8 +489,8 @@ async def execute_job(job_id: str, tenant_id: str) -> None:
         except asyncio.CancelledError:
             pass
 
-    if _is_cancelled(job_id):
-        _finish(job_id, "cancelled", "Cancelled by the operator.")
+    if _is_cancelled(tenant_id, job_id):
+        _finish(tenant_id, job_id, "cancelled", "Cancelled by the operator.")
         log_event("job.cancelled", job_id=job_id, tenant_id=tenant_id)
         return
 
@@ -509,7 +509,7 @@ async def execute_job(job_id: str, tenant_id: str) -> None:
         )
     except Exception as exc:  # noqa: BLE001 - surface the save failure on the job
         msg = f"Could not save leads: {exc}"
-        _finish(job_id, "failed", msg)
+        _finish(tenant_id, job_id, "failed", msg)
         log_event(
             "job.failed",
             level=logging.WARNING,

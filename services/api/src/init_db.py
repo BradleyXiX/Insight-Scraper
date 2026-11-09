@@ -95,15 +95,12 @@ def init_db(max_retries: int = 10, retry_delay: int = 2) -> None:
                         f"DROP POLICY IF EXISTS tenant_isolation_policy ON {table_name};"
                     )
                 )
-                # The `admin` value is reserved for internal job bookkeeping: the worker
-                # updates a job row before it has an authenticated request context.
                 connection.execute(
                     text(
                         f"""
                         CREATE POLICY tenant_isolation_policy ON {table_name}
                         USING (
                             tenant_id = current_setting('app.current_tenant', true)
-                            OR current_setting('app.current_tenant', true) = 'admin'
                         );
                         """
                     )

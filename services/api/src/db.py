@@ -59,24 +59,3 @@ def tenant_session(tenant_id: str):
         raise
     finally:
         db.close()
-
-
-@contextmanager
-def admin_session():
-    """Session for internal job bookkeeping that must read across tenant rows.
-
-    The RLS policies explicitly allow the `admin` tenant value. Application endpoints
-    still filter by the authenticated tenant id; this context only exists so the job
-    runner can update a row before it knows which tenant owns it.
-    """
-    db = SessionLocal()
-    try:
-        if not _IS_SQLITE:
-            db.execute(text("SET LOCAL app.current_tenant = 'admin'"))
-        yield db
-        db.commit()
-    except Exception:
-        db.rollback()
-        raise
-    finally:
-        db.close()

@@ -1,7 +1,7 @@
 from datetime import timedelta
 import pytest
 
-from db import admin_session
+from db import tenant_session
 from models import ScrapeJob
 import jobs
 from jobs import claim_job, heartbeat, recover_jobs, create_job, get_job, utcnow
@@ -40,7 +40,7 @@ def test_claim_succeeds_once_then_returns_none():
 
 def test_claim_skips_a_cancelled_queued_job():
     job = make_test_job()
-    with admin_session() as db:
+    with tenant_session(TENANT) as db:
         j = db.get(ScrapeJob, job.id)
         j.cancel_requested = True
 
@@ -82,7 +82,7 @@ def test_recover_requeues_an_expired_lease():
     job = make_test_job()
     claim_job(TENANT, job.id, worker_id="worker_a", lease_seconds=60)
 
-    with admin_session() as db:
+    with tenant_session(TENANT) as db:
         j = db.get(ScrapeJob, job.id)
         j.lease_expires_at = utcnow() - timedelta(seconds=10)
         j.attempt = 1
@@ -102,7 +102,7 @@ def test_recover_fails_after_max_attempts():
     job = make_test_job()
     claim_job(TENANT, job.id, worker_id="worker_a", lease_seconds=60)
 
-    with admin_session() as db:
+    with tenant_session(TENANT) as db:
         j = db.get(ScrapeJob, job.id)
         j.lease_expires_at = utcnow() - timedelta(seconds=10)
         j.attempt = 3
@@ -120,7 +120,7 @@ def test_recover_is_idempotent():
     job = make_test_job()
     claim_job(TENANT, job.id, worker_id="worker_a", lease_seconds=60)
 
-    with admin_session() as db:
+    with tenant_session(TENANT) as db:
         j = db.get(ScrapeJob, job.id)
         j.lease_expires_at = utcnow() - timedelta(seconds=10)
         j.attempt = 1
@@ -136,7 +136,7 @@ def test_recover_is_idempotent():
 
 def test_recover_releases_a_cancelled_queued_job():
     job = make_test_job()
-    with admin_session() as db:
+    with tenant_session(TENANT) as db:
         j = db.get(ScrapeJob, job.id)
         j.cancel_requested = True
 
@@ -146,3 +146,4 @@ def test_recover_releases_a_cancelled_queued_job():
     stored = get_job(TENANT, job.id)
     assert stored is not None
     assert stored.status == "cancelled"
+
