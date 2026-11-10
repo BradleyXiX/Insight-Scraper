@@ -1,4 +1,5 @@
 from datetime import timedelta
+import asyncio
 import pytest
 
 from db import tenant_session
@@ -146,4 +147,43 @@ def test_recover_releases_a_cancelled_queued_job():
     stored = get_job(TENANT, job.id)
     assert stored is not None
     assert stored.status == "cancelled"
+
+
+def test_a_waiting_job_stays_queued_until_a_slot_frees(monkeypatch):
+    """A batch item waiting for a scrape slot must still read as queued.
+
+    Claiming before the slot is acquired marks every item in a batch as `running`
+    while only one is actually scraping, which makes the progress list useless.
+    """
+    first = make_test_job(query="first")
+    second = make_test_job(query="second")
+    started: list[str] = []
+
+    async def fake_run_worker_async(
+        query, region, source, limit, timeout_seconds=0, on_process=None
+    ):
+        started.append(query)
+        await asyncio.sleep(0.05)
+        return []
+
+    monkeypatch.setattr(jobs, "run_worker_async", fake_run_worker_async)
+    monkeypatch.setattr(jobs, "_SEM", asyncio.Semaphore(1))
+
+    async def scenario():
+        task_one = asyncio.create_task(jobs.execute_job(first.id, TENANT))
+        task_two = asyncio.create_task(jobs.execute_job(second.id, TENANT))
+        # Let the first task take the only slot and start scraping.
+        await asyncio.sleep(0.01)
+
+        waiting = get_job(TENANT, second.id)
+        assert waiting is not None
+        assert waiting.status == "queued"
+        assert waiting.worker_id is None
+
+        await asyncio.gather(task_one, task_two)
+
+    asyncio.run(scenario())
+
+    assert started == ["first", "second"]
+    assert get_job(TENANT, second.id).status == "empty"
 

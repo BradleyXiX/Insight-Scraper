@@ -422,7 +422,18 @@ async def _heartbeat_loop(tenant_id: str, job_id: str, worker_id: str, lease_sec
 
 
 async def execute_job(job_id: str, tenant_id: str) -> None:
-    """Run one job to completion and record the outcome."""
+    """Wait for a scrape slot, then claim and run the job.
+
+    The slot is taken before the claim on purpose. Claiming first marks every item
+    in a batch as `running` while only one is actually scraping, which makes the
+    batch progress list useless. A job waiting for a slot stays `queued`.
+    """
+    async with _SEM:
+        await _run_claimed_job(job_id, tenant_id)
+
+
+async def _run_claimed_job(job_id: str, tenant_id: str) -> None:
+    """Claim and run one job to completion. The caller already holds a slot."""
     worker_id = f"worker_{uuid.uuid4().hex[:8]}"
     lease_seconds = int(os.getenv("SCRAPE_LEASE_SECONDS", "60"))
 
@@ -458,15 +469,14 @@ async def execute_job(job_id: str, tenant_id: str) -> None:
     )
 
     try:
-        async with _SEM:
-            leads = await run_worker_async(
-                query,
-                region,
-                source,
-                limit,
-                timeout_seconds=timeout,
-                on_process=register,
-            )
+        leads = await run_worker_async(
+            query,
+            region,
+            source,
+            limit,
+            timeout_seconds=timeout,
+            on_process=register,
+        )
     except ScraperTimeout as exc:
         if _is_cancelled(tenant_id, job_id):
             _finish(tenant_id, job_id, "cancelled", "Cancelled by the operator.")

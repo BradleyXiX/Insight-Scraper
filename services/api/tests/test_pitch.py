@@ -136,6 +136,34 @@ def test_null_pitch_rank_falls_back_to_rank_five(sample_settings):
     assert res["body"] == res_rank5["body"]
 
 
+def test_rank_one_without_a_measurement_invents_nothing(sample_settings):
+    lead = {
+        "business_name": "Ghost Site",
+        "website": "https://ghost.example",
+        "mobile_load_ms": 0,
+        "pitch_rank": 1,
+    }
+    res = build_email(lead, sample_settings)
+    combined = res["subject"] + res["body"]
+    assert "3.1s" not in combined
+    assert "took" not in combined.lower()
+    # Falls back to the honest rank-5 template rather than citing a fake number.
+    rank5 = build_email({**lead, "pitch_rank": 5}, sample_settings)
+    assert res["body"] == rank5["body"]
+
+
+def test_placeholder_business_name_does_not_reach_the_greeting(sample_settings):
+    lead = {
+        "business_name": "N/A",
+        "website": "https://noname.example",
+        "mobile_load_ms": 1200,
+        "pitch_rank": 3,
+    }
+    res = build_email(lead, sample_settings)
+    assert "Hi N/A" not in res["body"]
+    assert res["body"].startswith("Hi,")
+
+
 def test_settings_api_round_trips_sender_fields(authed_client, local_mode):
     # Update settings with sender information
     payload = {

@@ -16,6 +16,8 @@ from typing import Any
 
 OPT_OUT_LINE = "If this is not relevant, tell me and I will not follow up."
 
+_PLACEHOLDER_NAMES = {"", "n/a", "na", "none", "unknown", "unknown business"}
+
 
 def _get_val(obj: Any, *keys: str, default: Any = None) -> Any:
     for key in keys:
@@ -70,6 +72,10 @@ def build_email(lead: Any, settings: Any = None) -> dict[str, str]:
         rank = 5
 
     business_name = str(_get_val(lead, "business_name", "Business Name", "name") or "").strip()
+    # Rows saved before the parser always set a name carry "N/A"; a sendable email
+    # must not open with "Hi N/A,".
+    if business_name.lower() in _PLACEHOLDER_NAMES:
+        business_name = ""
     website = str(_get_val(lead, "website", "Website") or "").strip()
     domain = _extract_domain(website)
     target_name = domain or business_name or "your site"
@@ -82,8 +88,14 @@ def build_email(lead: Any, settings: Any = None) -> dict[str, str]:
 
     greeting = f"Hi {business_name}," if business_name else "Hi,"
 
+    if rank == 1 and mobile_load_ms <= 0:
+        # Rank 1 means "measured slow site". With no measurement there is nothing to
+        # cite, so fall through to the honest no-issue template instead of printing
+        # an invented load time.
+        rank = 5
+
     if rank == 1:
-        sec = mobile_load_ms / 1000.0 if mobile_load_ms > 0 else 3.1
+        sec = mobile_load_ms / 1000.0
         subject = f"Mobile load time for {target_name}"
         observation = (
             f"I tested {domain or 'your website'} on a mobile connection and it took {sec:.1f}s to load. "
