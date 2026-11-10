@@ -36,6 +36,7 @@ def _iso(value: datetime | None) -> str | None:
 def serialize_job(job: ScrapeJob) -> dict:
     return {
         "id": job.id,
+        "batch_id": job.batch_id,
         "query": job.query,
         "region": job.region,
         "source": job.source,
@@ -57,6 +58,7 @@ def create_job(
     region: str,
     source: str,
     limit: int,
+    batch_id: str | None = None,
 ) -> ScrapeJob:
     with tenant_session(tenant_id) as db:
         job = ScrapeJob(
@@ -65,6 +67,7 @@ def create_job(
             region=region,
             source=source,
             limit=limit,
+            batch_id=batch_id,
             status="queued",
         )
         db.add(job)
@@ -78,8 +81,29 @@ def create_job(
             region=region,
             source=source,
             limit=limit,
+            batch_id=batch_id,
         )
         return job
+
+
+def create_batch(
+    tenant_id: str,
+    items: list[dict],
+) -> tuple[str, list[ScrapeJob]]:
+    batch_id = str(uuid.uuid4())
+    created: list[ScrapeJob] = []
+    for item in items:
+        job = create_job(
+            tenant_id=tenant_id,
+            query=item["query"] if isinstance(item, dict) else item.query,
+            region=item["region"] if isinstance(item, dict) else item.region,
+            source=item["source"] if isinstance(item, dict) else item.source,
+            limit=item["limit"] if isinstance(item, dict) else item.limit,
+            batch_id=batch_id,
+        )
+        created.append(job)
+        start_job(job.id, tenant_id)
+    return batch_id, created
 
 
 def get_job(tenant_id: str, job_id: str) -> ScrapeJob | None:
@@ -90,9 +114,13 @@ def get_job(tenant_id: str, job_id: str) -> ScrapeJob | None:
         return job
 
 
-def list_jobs(tenant_id: str, limit: int, offset: int) -> tuple[list[ScrapeJob], int]:
+def list_jobs(
+    tenant_id: str, limit: int, offset: int, batch_id: str | None = None
+) -> tuple[list[ScrapeJob], int]:
     with tenant_session(tenant_id) as db:
         query = db.query(ScrapeJob).filter(ScrapeJob.tenant_id == tenant_id)
+        if batch_id:
+            query = query.filter(ScrapeJob.batch_id == batch_id)
         total = query.count()
         jobs = (
             query.order_by(ScrapeJob.created_at.desc())

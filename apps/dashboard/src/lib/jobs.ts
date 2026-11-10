@@ -12,6 +12,7 @@ export const ACTIVE_JOB_STATUSES: JobStatus[] = ["queued", "running"];
 
 export interface ScrapeJob {
   id: string;
+  batch_id?: string | null;
   query: string;
   region: string;
   source: string;
@@ -114,11 +115,40 @@ export function startScrape(
   });
 }
 
+export interface BatchItemInput {
+  query: string;
+  region: string;
+  source: string;
+  limit: number;
+}
+
+export interface BatchResponse {
+  batch_id: string;
+  jobs: ScrapeJob[];
+}
+
+export function createBatch(
+  getToken: GetToken,
+  items: BatchItemInput[],
+): Promise<Response> {
+  return apiRequest("/api/batches", getToken, {
+    method: "POST",
+    body: JSON.stringify({ items }),
+  });
+}
+
 export function listJobs(
   getToken: GetToken,
-  page: { limit: number; offset: number },
+  page: { limit: number; offset: number; batch_id?: string },
 ): Promise<Response> {
-  return apiRequest(withQuery("/api/jobs", page), getToken);
+  const params: Record<string, string | number> = {
+    limit: page.limit,
+    offset: page.offset,
+  };
+  if (page.batch_id) {
+    params.batch_id = page.batch_id;
+  }
+  return apiRequest(withQuery("/api/jobs", params), getToken);
 }
 
 export function getJob(getToken: GetToken, jobId: string): Promise<Response> {

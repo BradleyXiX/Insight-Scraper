@@ -76,6 +76,17 @@ class SettingsPayload(BaseModel):
     default_limit: int = Field(ge=1, le=config.MAX_LEAD_LIMIT)
 
 
+class BatchItem(BaseModel):
+    query: str = Field(min_length=config.MIN_QUERY_LENGTH, max_length=config.MAX_QUERY_LENGTH)
+    region: Region = "US"
+    source: Source = "gmaps"
+    limit: int = Field(default=25, ge=1, le=config.MAX_LEAD_LIMIT)
+
+
+class BatchPayload(BaseModel):
+    items: list[BatchItem] = Field(min_length=1, max_length=25)
+
+
 def _require_entitlement(db: Session, tenant_id: str) -> None:
     """Reject scraping when hosted billing is required but unavailable."""
     if config.dev_bypass_enabled():
@@ -146,15 +157,31 @@ async def start_scrape(
     return {"job": jobs.serialize_job(job)}
 
 
+@app.post("/api/batches", status_code=202)
+async def create_scrape_batch(
+    payload: BatchPayload,
+    tenant_id: str = Depends(verify_clerk_token),
+    db: Session = Depends(get_db),
+):
+    _require_entitlement(db, tenant_id)
+    items_data = [item.model_dump() for item in payload.items]
+    batch_id, batch_jobs = jobs.create_batch(tenant_id, items_data)
+    return {
+        "batch_id": batch_id,
+        "jobs": [jobs.serialize_job(job) for job in batch_jobs],
+    }
+
+
 @app.get("/api/jobs")
 async def list_scrape_jobs(
     limit: int = Query(default=20, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
+    batch_id: str | None = Query(default=None),
     tenant_id: str = Depends(verify_clerk_token),
 ):
     """Return the tenant's run history, newest first."""
     jobs.recover_jobs(tenant_id)
-    rows, total = jobs.list_jobs(tenant_id, limit, offset)
+    rows, total = jobs.list_jobs(tenant_id, limit, offset, batch_id=batch_id)
     return {
         "jobs": [jobs.serialize_job(job) for job in rows],
         "total": total,
