@@ -52,6 +52,9 @@ class WorkspaceSettings(Base):
     default_region = Column(String, nullable=False, default="US")
     default_source = Column(String, nullable=False, default="gmaps")
     default_limit = Column(Integer, nullable=False, default=25)
+    sender_name = Column(String, nullable=True)
+    sender_email = Column(String, nullable=True)
+    sender_phone = Column(String, nullable=True)
     updated_at = Column(DateTime, default=_utcnow, onupdate=_utcnow)
 
 

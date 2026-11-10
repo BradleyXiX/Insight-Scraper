@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 import config
 import jobs
 import logging_setup
+import pitch
 import stripe_service
 from auth import verify_clerk_token
 from db import engine, get_db, tenant_session
@@ -74,6 +75,9 @@ class SettingsPayload(BaseModel):
     default_region: Region
     default_source: Source
     default_limit: int = Field(ge=1, le=config.MAX_LEAD_LIMIT)
+    sender_name: str | None = None
+    sender_email: str | None = None
+    sender_phone: str | None = None
 
 
 class BatchItem(BaseModel):
@@ -106,7 +110,8 @@ def _require_entitlement(db: Session, tenant_id: str) -> None:
         )
 
 
-def _serialize_lead(lead: Lead) -> dict:
+def _serialize_lead(lead: Lead, settings: dict | None = None) -> dict:
+    email_data = pitch.build_email(lead, settings)
     return {
         "id": lead.id,
         "job_id": lead.job_id,
@@ -121,6 +126,9 @@ def _serialize_lead(lead: Lead) -> dict:
         "has_chatbot_widget": bool(getattr(lead, "has_chatbot_widget", False)),
         "mobile_load_ms": getattr(lead, "mobile_load_ms", 0) or 0,
         "pitch_hook": getattr(lead, "pitch_hook", "") or "",
+        "pitch_rank": getattr(lead, "pitch_rank", None),
+        "email_subject": email_data["subject"],
+        "email_body": email_data["body"],
         "created_at": lead.created_at.isoformat() if lead.created_at else None,
     }
 
@@ -128,11 +136,18 @@ def _serialize_lead(lead: Lead) -> dict:
 def _settings_dict(settings: WorkspaceSettings | None) -> dict:
     if settings is None:
         return dict(DEFAULT_SETTINGS)
-    return {
+    data = {
         "default_region": settings.default_region,
         "default_source": settings.default_source,
         "default_limit": settings.default_limit,
     }
+    if getattr(settings, "sender_name", None) is not None:
+        data["sender_name"] = settings.sender_name
+    if getattr(settings, "sender_email", None) is not None:
+        data["sender_email"] = settings.sender_email
+    if getattr(settings, "sender_phone", None) is not None:
+        data["sender_phone"] = settings.sender_phone
+    return data
 
 
 @app.post("/api/scrape", status_code=202)
@@ -210,10 +225,14 @@ async def get_scrape_job_leads(
     if job is None:
         raise HTTPException(status_code=404, detail="Job not found")
 
+    with tenant_session(tenant_id) as db:
+        settings = db.get(WorkspaceSettings, tenant_id)
+        settings_dict = _settings_dict(settings)
+
     leads = jobs.leads_for_job(tenant_id, job_id) or []
     return {
         "job": jobs.serialize_job(job),
-        "leads": [_serialize_lead(lead) for lead in leads],
+        "leads": [_serialize_lead(lead, settings_dict) for lead in leads],
     }
 
 
@@ -287,6 +306,12 @@ async def update_settings(
         settings.default_region = payload.default_region
         settings.default_source = payload.default_source
         settings.default_limit = payload.default_limit
+        if "sender_name" in payload.model_fields_set:
+            settings.sender_name = payload.sender_name
+        if "sender_email" in payload.model_fields_set:
+            settings.sender_email = payload.sender_email
+        if "sender_phone" in payload.model_fields_set:
+            settings.sender_phone = payload.sender_phone
 
         db.flush()
         return _settings_dict(settings)
@@ -302,6 +327,8 @@ async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
 async def get_leads(tenant_id: str = Depends(verify_clerk_token)):
     """Return the most recent leads for the authenticated tenant."""
     with tenant_session(tenant_id) as db:
+        settings = db.get(WorkspaceSettings, tenant_id)
+        settings_dict = _settings_dict(settings)
         leads = (
             db.query(Lead)
             .filter(Lead.tenant_id == tenant_id)
@@ -309,7 +336,7 @@ async def get_leads(tenant_id: str = Depends(verify_clerk_token)):
             .limit(200)
             .all()
         )
-        return [_serialize_lead(lead) for lead in leads]
+        return [_serialize_lead(lead, settings_dict) for lead in leads]
 
 
 @app.get("/health")

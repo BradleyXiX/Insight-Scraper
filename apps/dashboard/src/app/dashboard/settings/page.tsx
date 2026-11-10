@@ -13,9 +13,15 @@ import {
   type WorkspaceSettings,
 } from "@/lib/jobs";
 
+interface FullWorkspaceSettings extends WorkspaceSettings {
+  sender_name?: string | null;
+  sender_email?: string | null;
+  sender_phone?: string | null;
+}
+
 export default function SettingsPage() {
   const { getToken } = useAppAuth();
-  const [settings, setSettings] = useState<WorkspaceSettings>(DEFAULT_SETTINGS);
+  const [settings, setSettings] = useState<FullWorkspaceSettings>(DEFAULT_SETTINGS);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -175,6 +181,72 @@ export default function SettingsPage() {
               <p className="text-xs text-foreground/60">
                 Between 1 and 50. Larger limits take longer and use more memory.
               </p>
+            </div>
+
+            <div className="pt-4 border-t border-border space-y-4">
+              <div className="space-y-1">
+                <h2 className="text-sm font-semibold text-white">Outreach signature</h2>
+                <p className="text-xs text-foreground/60 font-mono">
+                  Used to sign generated outreach emails for extracted leads. Empty fields are omitted.
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <label
+                  htmlFor="sender-name"
+                  className="block text-xs uppercase tracking-wider font-mono text-foreground/60"
+                >
+                  Sender name
+                </label>
+                <input
+                  id="sender-name"
+                  type="text"
+                  placeholder="e.g. Alex Morgan"
+                  value={settings.sender_name ?? ""}
+                  onChange={(event) =>
+                    setSettings({ ...settings, sender_name: event.target.value })
+                  }
+                  className="w-full bg-surface border border-border rounded-none py-3 px-4 text-white placeholder:text-foreground/40 focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent font-mono text-sm"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <label
+                  htmlFor="sender-email"
+                  className="block text-xs uppercase tracking-wider font-mono text-foreground/60"
+                >
+                  Sender email
+                </label>
+                <input
+                  id="sender-email"
+                  type="email"
+                  placeholder="e.g. alex@foundrygrowth.com"
+                  value={settings.sender_email ?? ""}
+                  onChange={(event) =>
+                    setSettings({ ...settings, sender_email: event.target.value })
+                  }
+                  className="w-full bg-surface border border-border rounded-none py-3 px-4 text-white placeholder:text-foreground/40 focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent font-mono text-sm"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <label
+                  htmlFor="sender-phone"
+                  className="block text-xs uppercase tracking-wider font-mono text-foreground/60"
+                >
+                  Sender phone
+                </label>
+                <input
+                  id="sender-phone"
+                  type="tel"
+                  placeholder="e.g. +1 (555) 234-5678"
+                  value={settings.sender_phone ?? ""}
+                  onChange={(event) =>
+                    setSettings({ ...settings, sender_phone: event.target.value })
+                  }
+                  className="w-full bg-surface border border-border rounded-none py-3 px-4 text-white placeholder:text-foreground/40 focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent font-mono text-sm"
+                />
+              </div>
             </div>
 
             <button

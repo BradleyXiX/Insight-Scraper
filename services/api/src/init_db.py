@@ -43,6 +43,12 @@ JOB_COLUMNS = (
     "batch_id VARCHAR(36)",
 )
 
+SETTINGS_COLUMNS = (
+    "sender_name VARCHAR",
+    "sender_email VARCHAR",
+    "sender_phone VARCHAR",
+)
+
 
 def init_db(max_retries: int = 10, retry_delay: int = 2) -> None:
     print("Connecting to database and creating tables...")
@@ -75,6 +81,11 @@ def init_db(max_retries: int = 10, retry_delay: int = 2) -> None:
                     connection.execute(text(f"ALTER TABLE scrape_jobs ADD COLUMN {column};"))
                 except Exception:
                     pass
+            for column in SETTINGS_COLUMNS:
+                try:
+                    connection.execute(text(f"ALTER TABLE workspace_settings ADD COLUMN {column};"))
+                except Exception:
+                    pass
         print("SQLite detected: skipping RLS policies (tenant filters still apply).")
         print("Database initialized successfully.")
         return
@@ -96,6 +107,14 @@ def init_db(max_retries: int = 10, retry_delay: int = 2) -> None:
                 )
             except Exception as exc:  # noqa: BLE001 - column may already exist
                 print(f"Note: could not ensure scrape_jobs column '{column}': {exc}")
+
+        for column in SETTINGS_COLUMNS:
+            try:
+                connection.execute(
+                    text(f"ALTER TABLE workspace_settings ADD COLUMN IF NOT EXISTS {column};")
+                )
+            except Exception as exc:  # noqa: BLE001 - column may already exist
+                print(f"Note: could not ensure workspace_settings column '{column}': {exc}")
 
         for table_name in TENANT_TABLES:
             try:
