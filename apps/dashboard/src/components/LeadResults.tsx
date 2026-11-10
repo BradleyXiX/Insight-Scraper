@@ -1,7 +1,7 @@
 "use client";
 
-import React from "react";
-import { ExternalLink, Bot, Zap, CheckCircle } from "lucide-react";
+import React, { useState } from "react";
+import { ExternalLink, Bot, Zap, CheckCircle, Mail } from "lucide-react";
 import {
   LeadItem,
   getPitchHook,
@@ -11,6 +11,7 @@ import {
   pitchTone,
   sortByPitch,
 } from "@/lib/leads";
+import { EmailDialog } from "@/components/EmailDialog";
 
 export interface LeadResultsProps {
   leads: LeadItem[];
@@ -36,6 +37,8 @@ function pitchLabel(pitch: string, rank?: number | null): string {
 }
 
 export function LeadResults({ leads, region, emptyMessage }: LeadResultsProps): React.ReactElement {
+  const [selectedLead, setSelectedLead] = useState<LeadItem | null>(null);
+
   if (leads.length === 0) {
     return (
       <div className="panel p-12 text-center text-foreground/60 font-mono text-sm">
@@ -74,12 +77,13 @@ export function LeadResults({ leads, region, emptyMessage }: LeadResultsProps): 
         <table className="w-full table-fixed text-sm text-left">
           <thead className="text-xs text-foreground/60 uppercase bg-surface border-b border-border">
             <tr>
-              <th className="w-56 px-5 py-4 font-medium">Business Name</th>
-              <th className="w-56 px-5 py-4 font-medium">Contact &amp; Phone</th>
-              <th className="w-56 px-5 py-4 font-medium">Website</th>
+              <th className="w-52 px-5 py-4 font-medium">Business Name</th>
+              <th className="w-52 px-5 py-4 font-medium">Contact &amp; Phone</th>
+              <th className="w-52 px-5 py-4 font-medium">Website</th>
               <th className="w-24 px-4 py-4 font-medium text-center">Mobile Load</th>
               <th className="w-28 px-4 py-4 font-medium text-center">Chatbot</th>
               <th className="w-44 px-5 py-4 font-medium">Pitch Hook</th>
+              <th className="w-28 px-4 py-4 font-medium text-right">Outreach</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-border">
@@ -204,6 +208,18 @@ export function LeadResults({ leads, region, emptyMessage }: LeadResultsProps): 
                         </span>
                       )}
                     </div>
+                  </td>
+
+                  {/* Outreach Email Action Column */}
+                  <td className="px-4 py-4 text-right">
+                    <button
+                      type="button"
+                      onClick={() => setSelectedLead(lead)}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-mono uppercase tracking-wider bg-surface border border-border text-foreground hover:text-white hover:border-foreground/40 transition-colors cursor-pointer"
+                    >
+                      <Mail className="w-3.5 h-3.5" strokeWidth={1.5} />
+                      Email
+                    </button>
                   </td>
                 </tr>
               );
@@ -337,10 +353,28 @@ export function LeadResults({ leads, region, emptyMessage }: LeadResultsProps): 
                   <span className="text-foreground/60 font-mono">No website</span>
                 )}
               </div>
+
+              {/* Outreach Email Action */}
+              <div className="pt-2 border-t border-border flex items-center justify-end">
+                <button
+                  type="button"
+                  onClick={() => setSelectedLead(lead)}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-mono uppercase tracking-wider bg-surface border border-border text-foreground hover:text-white hover:border-foreground/40 transition-colors cursor-pointer"
+                >
+                  <Mail className="w-3.5 h-3.5" strokeWidth={1.5} />
+                  Email preview
+                </button>
+              </div>
             </li>
           );
         })}
       </ul>
+
+      <EmailDialog
+        isOpen={selectedLead !== null}
+        onClose={() => setSelectedLead(null)}
+        lead={selectedLead}
+      />
     </>
   );
 }

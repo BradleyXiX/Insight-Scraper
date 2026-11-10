@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   SPEED_PITCH, RAG_PITCH, QUALIFIED_PITCH,
   getMobileLoadMs, getHasChatbot, getPitchHook, pitchTone, computeKpis, toCsv, toJson,
+  evidence,
 } from "./leads.ts";
 
 test("load of exactly 3000ms is not slow", () => {
@@ -67,7 +68,7 @@ test("csv quotes, escapes and falls back", () => {
     { region: "US", query: "medspas in Austin, TX" },
   );
   const lines = csv.split("\r\n");
-  assert.ok(lines[0].startsWith('"Business Name","Phone"'));
+  assert.ok(lines[0].startsWith('"business_name","phone"'));
   assert.ok(lines[1].includes('"Cedar ""North"" Spa"'));
   assert.ok(lines[1].includes('"Hidden"'));
   assert.ok(lines[1].includes('"medspas in Austin, TX"'));
@@ -94,4 +95,93 @@ test("json export keeps the same fields as csv", () => {
   assert.equal(payload[0].mobile_load_ms, 2100);
   assert.equal(payload[0].has_chatbot_widget, false);
   assert.equal(payload[0].search_query, "coffee shops");
+});
+
+test("csv includes the email columns in order", () => {
+  const csv = toCsv(
+    [
+      {
+        business_name: "Acme Dental",
+        phone: "+1 555-1234",
+        email: "info@acmedental.com",
+        website: "https://acmedental.com",
+        pitch_hook: "Fast site",
+        email_subject: "Quick question",
+        email_body: "Hi Acme,",
+        region: "US",
+        query: "dentists",
+        created_at: "2026-11-08T00:00:00Z",
+      },
+    ],
+    { region: "US", query: "dentists" },
+  );
+  const header = csv.split("\r\n")[0];
+  const expectedHeader = [
+    "business_name",
+    "phone",
+    "email",
+    "website",
+    "pitch",
+    "evidence",
+    "email_subject",
+    "email_body",
+    "region",
+    "query",
+    "found_at",
+  ]
+    .map((h) => `"${h}"`)
+    .join(",");
+  assert.equal(header, expectedHeader);
+});
+
+test("csv quotes a body containing commas, quotes and newlines", () => {
+  const bodyWithSpecialChars = 'Hi "Team",\nI noticed your site, but did not see HTTPS.\n\nThanks,\nAlex';
+  const csv = toCsv(
+    [
+      {
+        business_name: "Special Clinic",
+        email_body: bodyWithSpecialChars,
+      },
+    ],
+    { region: "US", query: "clinics" },
+  );
+  assert.ok(csv.includes('"Hi ""Team"",\nI noticed your site, but did not see HTTPS.\n\nThanks,\nAlex"'));
+});
+
+test("csv sorts rows by pitch rank then slowest first", () => {
+  const leads = [
+    { business_name: "Lead Rank 2", pitch_rank: 2, mobile_load_ms: 1200 },
+    { business_name: "Lead Rank 1 Faster", pitch_rank: 1, mobile_load_ms: 3200 },
+    { business_name: "Lead Rank 1 Slower", pitch_rank: 1, mobile_load_ms: 5500 },
+    { business_name: "Lead Rank Null", pitch_rank: null, mobile_load_ms: 800 },
+  ];
+  const csv = toCsv(leads, { region: "US", query: "leads" });
+  const lines = csv.split("\r\n");
+  assert.ok(lines[1].includes('"Lead Rank 1 Slower"'));
+  assert.ok(lines[2].includes('"Lead Rank 1 Faster"'));
+  assert.ok(lines[3].includes('"Lead Rank 2"'));
+  assert.ok(lines[4].includes('"Lead Rank Null"'));
+});
+
+test("evidence lists the measured facts only", () => {
+  const fullLead = {
+    website: "http://example.com",
+    mobile_load_ms: 4200,
+    has_chatbot_widget: false,
+  };
+  assert.equal(evidence(fullLead), "4.2s mobile load · no chat widget · no HTTPS");
+
+  const noSiteLead = {
+    website: "",
+    mobile_load_ms: 0,
+    has_chatbot_widget: false,
+  };
+  assert.equal(evidence(noSiteLead), "no website");
+
+  const fastSecureNoChat = {
+    website: "https://example.com",
+    mobile_load_ms: 1800,
+    has_chatbot_widget: false,
+  };
+  assert.equal(evidence(fastSecureNoChat), "1.8s mobile load · no chat widget");
 });
