@@ -2,11 +2,21 @@ import { auth } from "@clerk/nextjs/server";
 import { NextResponse } from "next/server";
 import Stripe from "stripe";
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-  apiVersion: "2026-04-22.dahlia", // Use the latest API version or your account's default
-});
-
 export async function POST(req: Request) {
+  const secretKey = process.env.STRIPE_SECRET_KEY;
+  const priceId = process.env.STRIPE_PRICE_ID;
+
+  // Billing is optional. Building the client at module scope made the whole
+  // Next.js build fail whenever the key was absent — which is every local build
+  // and every CI run. Fail closed at request time instead.
+  if (!secretKey || !priceId) {
+    return new NextResponse("Billing is not configured", { status: 503 });
+  }
+
+  const stripe = new Stripe(secretKey, {
+    apiVersion: "2026-04-22.dahlia", // Use the latest API version or your account's default
+  });
+
   try {
     const { userId, orgId } = await auth();
 

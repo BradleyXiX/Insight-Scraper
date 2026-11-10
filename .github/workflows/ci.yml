@@ -41,7 +41,10 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          # 24, not 20: `node --test` on Node 20 neither discovers `.test.ts`
+          # files nor runs TypeScript, so the test step passed while running
+          # zero tests.
+          node-version: "24"
           cache: npm
           cache-dependency-path: apps/dashboard/package-lock.json
 

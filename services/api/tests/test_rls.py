@@ -30,8 +30,9 @@ def test_policy_has_no_admin_branch():
 
 
 @pytest.mark.postgres
-def test_tenant_a_cannot_read_tenant_b():
+def test_tenant_a_cannot_read_tenant_b(postgres_app_role):
     with tenant_session("tenant_b") as db:
+        db.execute(text(f"SET LOCAL ROLE {postgres_app_role}"))
         lead_b = Lead(
             tenant_id="tenant_b",
             business_name="Business B",
@@ -41,13 +42,15 @@ def test_tenant_a_cannot_read_tenant_b():
         db.commit()
 
     with tenant_session("tenant_a") as db:
+        db.execute(text(f"SET LOCAL ROLE {postgres_app_role}"))
         leads = db.query(Lead).all()
         assert len(leads) == 0
 
 
 @pytest.mark.postgres
-def test_tenant_a_cannot_read_tenant_b_by_direct_select():
+def test_tenant_a_cannot_read_tenant_b_by_direct_select(postgres_app_role):
     with tenant_session("tenant_b") as db:
+        db.execute(text(f"SET LOCAL ROLE {postgres_app_role}"))
         lead_b = Lead(
             tenant_id="tenant_b",
             business_name="Secret B",
@@ -58,6 +61,7 @@ def test_tenant_a_cannot_read_tenant_b_by_direct_select():
         b_id = lead_b.id
 
     with tenant_session("tenant_a") as db:
+        db.execute(text(f"SET LOCAL ROLE {postgres_app_role}"))
         result = db.execute(
             text("SELECT * FROM leads WHERE id = :id"),
             {"id": b_id},

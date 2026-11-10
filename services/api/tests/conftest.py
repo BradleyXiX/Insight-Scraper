@@ -17,9 +17,15 @@ from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import text
 
 SRC = Path(__file__).resolve().parents[1] / "src"
 sys.path.insert(0, str(SRC))
+
+# PostgreSQL superusers bypass RLS even with FORCE ROW LEVEL SECURITY, so a test
+# that connects as `postgres` proves nothing about tenant isolation. The RLS tests
+# switch to this non-superuser, non-owner role before asserting.
+POSTGRES_APP_ROLE = "insight_app"
 
 _TEST_DIR = Path(tempfile.mkdtemp(prefix="insight-scraper-tests-"))
 
@@ -64,6 +70,49 @@ if _TEST_DATABASE_URL:
     init_db.init_db()
 
 
+def _prepare_postgres_app_role() -> None:
+    """Create the role RLS actually applies to, and grant it table privileges.
+
+    `fresh_database` drops and recreates the schema for every test, so the grants
+    have to be reissued after each `init_db()`.
+    """
+    with db_module.engine.begin() as conn:
+        conn.execute(
+            text(
+                f"""
+                DO $$
+                BEGIN
+                    IF NOT EXISTS (
+                        SELECT 1 FROM pg_roles WHERE rolname = '{POSTGRES_APP_ROLE}'
+                    ) THEN
+                        CREATE ROLE {POSTGRES_APP_ROLE} NOLOGIN;
+                    END IF;
+                END
+                $$;
+                """
+            )
+        )
+        conn.execute(text(f"GRANT USAGE ON SCHEMA public TO {POSTGRES_APP_ROLE}"))
+        conn.execute(
+            text(
+                "GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public "
+                f"TO {POSTGRES_APP_ROLE}"
+            )
+        )
+        conn.execute(
+            text(
+                "GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public "
+                f"TO {POSTGRES_APP_ROLE}"
+            )
+        )
+
+
+@pytest.fixture
+def postgres_app_role() -> str:
+    """The role the RLS tests impersonate so the policies actually apply."""
+    return POSTGRES_APP_ROLE
+
+
 def pytest_collection_modifyitems(config, items):
     if not os.getenv("TEST_DATABASE_URL"):
         skip_postgres = pytest.mark.skip(reason="requires TEST_DATABASE_URL (PostgreSQL)")
@@ -80,6 +129,7 @@ def fresh_database():
         import init_db
 
         init_db.init_db()
+        _prepare_postgres_app_role()
     else:
         Base.metadata.create_all(bind=db_module.engine)
     jobs_module._running.clear()
