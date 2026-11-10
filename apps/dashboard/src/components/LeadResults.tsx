@@ -7,7 +7,9 @@ import {
   getPitchHook,
   getMobileLoadMs,
   getHasChatbot,
+  getPitchRank,
   pitchTone,
+  sortByPitch,
 } from "@/lib/leads";
 
 export interface LeadResultsProps {
@@ -18,9 +20,18 @@ export interface LeadResultsProps {
 }
 
 /** Compact display label; the full pitch string is kept in exports and the title. */
-function pitchLabel(pitch: string): string {
-  if (/speed/i.test(pitch)) return "Speed overhaul";
-  if (/rag/i.test(pitch)) return "RAG bot";
+function pitchLabel(pitch: string, rank?: number | null): string {
+  if (rank === 1) return "Speed overhaul";
+  if (rank === 2) return "No HTTPS";
+  if (rank === 3) return "RAG bot";
+  if (rank === 4) return "No website";
+  if (rank === 5) return "SEO / Content";
+
+  if (/speed/i.test(pitch) || /load/i.test(pitch)) return "Speed overhaul";
+  if (/https|not secure/i.test(pitch)) return "No HTTPS";
+  if (/rag|bot|after hours/i.test(pitch)) return "RAG bot";
+  if (/no site|directory/i.test(pitch)) return "No website";
+  if (/seo|content|decent shape/i.test(pitch)) return "SEO / Content";
   return "AI automation";
 }
 
@@ -33,6 +44,8 @@ export function LeadResults({ leads, region, emptyMessage }: LeadResultsProps): 
       </div>
     );
   }
+
+  const sortedLeads = sortByPitch(leads);
 
   return (
     <>
@@ -70,9 +83,10 @@ export function LeadResults({ leads, region, emptyMessage }: LeadResultsProps): 
             </tr>
           </thead>
           <tbody className="divide-y divide-border">
-            {leads.map((lead, index) => {
+            {sortedLeads.map((lead, index) => {
+              const rank = getPitchRank(lead);
               const pitch = getPitchHook(lead);
-              const tone = pitchTone(pitch);
+              const tone = pitchTone(pitch, rank);
               const loadMs = getMobileLoadMs(lead);
               const hasChatbot = getHasChatbot(lead);
               const reg = lead.region || lead["Region"] || region;
@@ -158,31 +172,38 @@ export function LeadResults({ leads, region, emptyMessage }: LeadResultsProps): 
 
                   {/* Pitch Hook Badge Column */}
                   <td className="px-5 py-4">
-                    {tone === "attention" ? (
-                      <span
-                        title={pitch}
-                        className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-mono font-medium text-attention bg-attention-quiet border border-attention/30 whitespace-nowrap"
-                      >
-                        <Zap className="w-3.5 h-3.5 text-attention shrink-0" strokeWidth={1.5} />
-                        {pitchLabel(pitch)}
-                      </span>
-                    ) : tone === "accent" ? (
-                      <span
-                        title={pitch}
-                        className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-mono font-medium text-accent bg-accent-quiet border border-accent/30 whitespace-nowrap"
-                      >
-                        <Bot className="w-3.5 h-3.5 text-accent shrink-0" strokeWidth={1.5} />
-                        {pitchLabel(pitch)}
-                      </span>
-                    ) : (
-                      <span
-                        title={pitch}
-                        className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-mono font-medium text-foreground/80 bg-surface border border-border whitespace-nowrap"
-                      >
-                        <CheckCircle className="w-3.5 h-3.5 text-foreground/70 shrink-0" strokeWidth={1.5} />
-                        {pitchLabel(pitch)}
-                      </span>
-                    )}
+                    <div className="flex items-center gap-2">
+                      {rank !== null && (
+                        <span className="text-xs px-1.5 py-0.5 bg-surface border border-border text-foreground/60 font-mono font-medium shrink-0">
+                          #{rank}
+                        </span>
+                      )}
+                      {tone === "attention" ? (
+                        <span
+                          title={pitch}
+                          className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-mono font-medium text-attention bg-attention-quiet border border-attention/30 whitespace-nowrap"
+                        >
+                          <Zap className="w-3.5 h-3.5 text-attention shrink-0" strokeWidth={1.5} />
+                          {pitchLabel(pitch, rank)}
+                        </span>
+                      ) : tone === "accent" ? (
+                        <span
+                          title={pitch}
+                          className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-mono font-medium text-accent bg-accent-quiet border border-accent/30 whitespace-nowrap"
+                        >
+                          <Bot className="w-3.5 h-3.5 text-accent shrink-0" strokeWidth={1.5} />
+                          {pitchLabel(pitch, rank)}
+                        </span>
+                      ) : (
+                        <span
+                          title={pitch}
+                          className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-mono font-medium text-foreground/80 bg-surface border border-border whitespace-nowrap"
+                        >
+                          <CheckCircle className="w-3.5 h-3.5 text-foreground/70 shrink-0" strokeWidth={1.5} />
+                          {pitchLabel(pitch, rank)}
+                        </span>
+                      )}
+                    </div>
                   </td>
                 </tr>
               );
@@ -193,9 +214,10 @@ export function LeadResults({ leads, region, emptyMessage }: LeadResultsProps): 
 
       {/* Mobile Card List below lg */}
       <ul className="lg:hidden space-y-3 list-none p-0 m-0">
-        {leads.map((lead, index) => {
+        {sortedLeads.map((lead, index) => {
           const pitch = getPitchHook(lead);
-          const tone = pitchTone(pitch);
+          const rank = getPitchRank(lead);
+          const tone = pitchTone(pitch, rank);
           const loadMs = getMobileLoadMs(lead);
           const hasChatbot = getHasChatbot(lead);
           const reg = lead.region || lead["Region"] || region;
@@ -274,8 +296,11 @@ export function LeadResults({ leads, region, emptyMessage }: LeadResultsProps): 
 
               {/* Pitch Hook */}
               <div className="pt-1 border-t border-border">
-                <div className="text-xs font-mono uppercase tracking-wider text-foreground/60 mb-1">
-                  Pitch hook
+                <div className="flex items-center justify-between text-xs font-mono uppercase tracking-wider text-foreground/60 mb-1">
+                  <span>Pitch hook</span>
+                  {rank !== null && (
+                    <span className="text-foreground/50">Rank #{rank}</span>
+                  )}
                 </div>
                 {tone === "attention" ? (
                   <span className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-mono font-medium text-attention bg-attention-quiet border border-attention/30 break-words">

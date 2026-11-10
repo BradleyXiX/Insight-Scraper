@@ -250,6 +250,7 @@ def _save_leads(
                     has_chatbot_widget=bool(lead.get("Has_Chatbot_Widget", False)),
                     mobile_load_ms=int(lead.get("Mobile_Load_Ms", 0) or 0),
                     pitch_hook=lead.get("Pitch_Hook", ""),
+                    pitch_rank=lead.get("Pitch_Rank") or lead.get("pitch_rank"),
                 )
             )
             inserted += 1

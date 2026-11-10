@@ -33,6 +33,7 @@ LEAD_COLUMNS = (
     "pitch_hook VARCHAR",
     "region VARCHAR DEFAULT 'US'",
     "job_id VARCHAR(36)",
+    "pitch_rank INTEGER",
 )
 
 JOB_COLUMNS = (
@@ -63,6 +64,17 @@ def init_db(max_retries: int = 10, retry_delay: int = 2) -> None:
         # SQLite has no Row-Level Security. Local runs rely on explicit `tenant_id`
         # filters instead, so skip the policy block rather than failing every
         # statement in an aborted transaction.
+        with engine.begin() as connection:
+            for column in LEAD_COLUMNS:
+                try:
+                    connection.execute(text(f"ALTER TABLE leads ADD COLUMN {column};"))
+                except Exception:
+                    pass
+            for column in JOB_COLUMNS:
+                try:
+                    connection.execute(text(f"ALTER TABLE scrape_jobs ADD COLUMN {column};"))
+                except Exception:
+                    pass
         print("SQLite detected: skipping RLS policies (tenant filters still apply).")
         print("Database initialized successfully.")
         return

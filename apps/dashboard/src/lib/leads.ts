@@ -27,6 +27,9 @@ export interface LeadItem {
   "Pitch"?: string;
   pitch_hook?: string;
   "Pitch_Hook"?: string;
+  pitch_rank?: number | null;
+  "Pitch_Rank"?: number | null;
+  pitchRank?: number | null;
   query?: string;
   search_query?: string;
   "Search Query"?: string;
@@ -68,9 +71,54 @@ export function getPitchHook(lead: LeadItem): string {
   return QUALIFIED_PITCH;
 }
 
-export function pitchTone(pitch: string): PitchTone {
-  if (pitch === SPEED_PITCH) return "attention";
-  if (pitch === RAG_PITCH) return "accent";
+export function getPitchRank(lead: LeadItem): number | null {
+  if (lead.pitch_rank !== undefined && lead.pitch_rank !== null) {
+    const val = Number(lead.pitch_rank);
+    return Number.isFinite(val) ? val : null;
+  }
+  if (lead["Pitch_Rank"] !== undefined && lead["Pitch_Rank"] !== null) {
+    const val = Number(lead["Pitch_Rank"]);
+    return Number.isFinite(val) ? val : null;
+  }
+  if (lead.pitchRank !== undefined && lead.pitchRank !== null) {
+    const val = Number(lead.pitchRank);
+    return Number.isFinite(val) ? val : null;
+  }
+  return null;
+}
+
+export const pitchRank = getPitchRank;
+
+export function sortByPitch(leads: LeadItem[]): LeadItem[] {
+  return [...leads].sort((a, b) => {
+    const rankA = getPitchRank(a);
+    const rankB = getPitchRank(b);
+
+    if (rankA === null && rankB === null) return 0;
+    if (rankA === null) return 1;
+    if (rankB === null) return -1;
+
+    if (rankA !== rankB) {
+      return rankA - rankB;
+    }
+
+    const loadA = getMobileLoadMs(a);
+    const loadB = getMobileLoadMs(b);
+    return loadB - loadA;
+  });
+}
+
+export function pitchTone(pitch: string, rank?: number | null): PitchTone {
+  if (rank === 1 || rank === 2) return "attention";
+  if (rank === 3) return "accent";
+  if (rank === 4 || rank === 5) return "neutral";
+
+  if (pitch === SPEED_PITCH || /speed|load/i.test(pitch) || /https|not secure/i.test(pitch)) {
+    return "attention";
+  }
+  if (pitch === RAG_PITCH || /rag|bot/i.test(pitch)) {
+    return "accent";
+  }
   return "neutral";
 }
 

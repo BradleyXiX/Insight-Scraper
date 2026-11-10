@@ -245,14 +245,9 @@ def _calculate_pagespeed_score(load_time_seconds: float) -> int:
     else:
         return max(15, int(45 - min(30, (load_time_seconds - 5.5) * 5)))
 
-def _get_pitch_hook(mobile_load_ms: int, has_chatbot: bool) -> str:
-    """Generates the sales pitch hook based on mobile speed and chatbot signals."""
-    if mobile_load_ms > 3000:
-        return "Pitch $750 Speed Overhaul (#2)"
-    elif not has_chatbot:
-        return "Pitch $1,000 RAG Bot (#4)"
-    else:
-        return "Pitch Enterprise AI Automation"
+def _get_pitch_hook(website: str | None, mobile_load_ms: int, has_chatbot: bool) -> tuple[int, str]:
+    """Generates the sales pitch rank and hook based on ordered signal precedence."""
+    return parsers.pitch_rank_for(website, mobile_load_ms, has_chatbot)
 
 async def _audit_website_signal(browser, target_url: str) -> dict:
     """
@@ -618,7 +613,7 @@ async def run_scraper(query: str, region: str = "US", source: str = "gmaps", lim
             gc.collect()
 
             # Pitch Hook calculation
-            pitch_hook = _get_pitch_hook(mobile_load_ms, has_chatbot)
+            pitch_rank, pitch_hook = _get_pitch_hook(website, mobile_load_ms, has_chatbot)
             pagespeed_score = _calculate_pagespeed_score(mobile_load_ms / 1000.0) if mobile_load_ms > 0 else 0
 
             final_leads.append({
@@ -635,7 +630,9 @@ async def run_scraper(query: str, region: str = "US", source: str = "gmaps", lim
                 "Mobile Load Time": f"{mobile_load_ms / 1000.0:.2f}s" if mobile_load_ms > 0 else "N/A",
                 "PageSpeed Score": f"{pagespeed_score}/100" if mobile_load_ms > 0 else "N/A",
                 "Pitch": pitch_hook,
-                "Pitch_Hook": pitch_hook
+                "Pitch_Hook": pitch_hook,
+                "Pitch_Rank": pitch_rank,
+                "pitch_rank": pitch_rank,
             })
 
         await page.close()
@@ -667,7 +664,7 @@ async def _audit_urls_cli(urls_input: str, limit: int = 15) -> list[dict]:
             audit = await _audit_website_signal(browser, target_url)
             load_ms = audit.get("mobile_load_ms", 0)
             has_chat = audit.get("has_chatbot", False)
-            pitch = _get_pitch_hook(load_ms, has_chat)
+            pitch_rank, pitch = _get_pitch_hook(target_url, load_ms, has_chat)
             score = _calculate_pagespeed_score(load_ms / 1000.0) if load_ms > 0 else 0
 
             email_socials_parts = []
@@ -692,6 +689,8 @@ async def _audit_urls_cli(urls_input: str, limit: int = 15) -> list[dict]:
                 "PageSpeed Score": f"{score}/100" if load_ms > 0 else "N/A",
                 "Pitch": pitch,
                 "Pitch_Hook": pitch,
+                "Pitch_Rank": pitch_rank,
+                "pitch_rank": pitch_rank,
             })
 
         await browser.close()

@@ -347,3 +347,46 @@ def parse_yellowpages(
     except Exception:
         return []
     return leads
+
+
+def pitch_rank_for(
+    website: str | None, mobile_load_ms: int = 0, has_chatbot: bool = False
+) -> tuple[int, str]:
+    """Calculate the pitch rank (1-5) and pitch hook for a prospect business lead.
+
+    Precedence (first match wins):
+      1. mobile_load_ms > 3000
+      2. website is http:// only (no TLS)
+      3. has a website and no chat widget
+      4. no website at all
+      5. otherwise
+    """
+    url = (website or "").strip()
+    if not url:
+        return (4, "There is no site to find — just a directory listing.")
+
+    if mobile_load_ms > 3000:
+        sec = mobile_load_ms / 1000.0
+        return (
+            1,
+            f"Your site takes {sec:.1f}s to load on a phone. Most visitors leave before three.",
+        )
+
+    if url.lower().startswith("http://"):
+        return (
+            2,
+            "Your site has no HTTPS. Chrome marks it 'Not secure' before anyone reads it.",
+        )
+
+    if not has_chatbot:
+        return (
+            3,
+            "Nobody answers the site after hours. A small bot would.",
+        )
+
+    return (
+        5,
+        "The site is in decent shape — lead with SEO or content.",
+    )
+
+
