@@ -143,3 +143,4 @@ export function EmailDialog({ isOpen, onClose, lead }: EmailDialogProps): React.
 }
 
 export default EmailDialog;
+

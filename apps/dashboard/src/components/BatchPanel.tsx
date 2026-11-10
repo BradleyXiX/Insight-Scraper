@@ -9,11 +9,12 @@ import {
   isActiveJob,
   listJobs,
   REGION_OPTIONS,
-  SOURCE_OPTIONS,
+  DEFAULT_SOURCE_INFO,
   type BatchItemInput,
   type BatchResponse,
   type JobPage,
   type ScrapeJob,
+  type SourceMap,
 } from "@/lib/jobs";
 import { NETWORK_FAILURE, readFailure } from "@/lib/errors";
 
@@ -22,15 +23,26 @@ const LIMIT_OPTIONS = [10, 25, 50];
 export interface BatchPanelProps {
   onSelectJob?: (job: ScrapeJob) => void;
   selectedJobId?: string | null;
+  sourceMap?: SourceMap;
 }
 
-export function BatchPanel({ onSelectJob, selectedJobId }: BatchPanelProps) {
+export function BatchPanel({ onSelectJob, selectedJobId, sourceMap }: BatchPanelProps) {
   const { getToken } = useAppAuth();
+
+  const currentSourceMap = sourceMap ?? DEFAULT_SOURCE_INFO;
+  const sourceOptions = Object.entries(currentSourceMap).map(([value, info]) => ({
+    value,
+    label: info.label,
+    degraded: info.degraded,
+    note: info.note,
+  }));
 
   const [queriesText, setQueriesText] = useState("");
   const [selectedRegions, setSelectedRegions] = useState<string[]>(["US"]);
   const [source, setSource] = useState("gmaps");
   const [limit, setLimit] = useState(25);
+
+  const activeSourceInfo = currentSourceMap[source];
 
   const [batchId, setBatchId] = useState<string | null>(null);
   const [jobs, setJobs] = useState<ScrapeJob[]>([]);
@@ -174,22 +186,29 @@ export function BatchPanel({ onSelectJob, selectedJobId }: BatchPanelProps) {
         </div>
 
         <div className="flex flex-col md:flex-row gap-3 pt-2">
-          <div className="relative w-full md:w-52">
-            <select
-              value={source}
-              onChange={(e) => setSource(e.target.value)}
-              className="w-full bg-surface border border-border rounded-none py-3 pl-4 pr-10 text-white focus:outline-none focus:border-accent font-mono text-sm cursor-pointer appearance-none"
-              aria-label="Batch scraping source"
-            >
-              {SOURCE_OPTIONS.map((opt) => (
-                <option key={opt.value} value={opt.value} className="bg-surface text-white">
-                  {opt.label}
-                </option>
-              ))}
-            </select>
-            <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-3 text-foreground/50">
-              <ChevronDown className="w-4 h-4" />
+          <div className="flex flex-col w-full md:w-52">
+            <div className="relative w-full">
+              <select
+                value={source}
+                onChange={(e) => setSource(e.target.value)}
+                className="w-full bg-surface border border-border rounded-none py-3 pl-4 pr-10 text-white focus:outline-none focus:border-accent font-mono text-sm cursor-pointer appearance-none"
+                aria-label="Batch scraping source"
+              >
+                {sourceOptions.map((opt) => (
+                  <option key={opt.value} value={opt.value} className="bg-surface text-white">
+                    {opt.label}{opt.degraded ? " (Degraded)" : ""}
+                  </option>
+                ))}
+              </select>
+              <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-3 text-foreground/50">
+                <ChevronDown className="w-4 h-4" />
+              </div>
             </div>
+            {activeSourceInfo?.degraded && activeSourceInfo.note && (
+              <p className="text-xs font-mono text-attention mt-1">
+                {activeSourceInfo.note}
+              </p>
+            )}
           </div>
 
           <div className="relative w-full md:w-36">
