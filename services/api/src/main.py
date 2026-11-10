@@ -261,6 +261,11 @@ async def delete_scrape_job(
     return Response(status_code=204)
 
 
+@app.get("/api/sources")
+async def list_sources(tenant_id: str = Depends(verify_clerk_token)):
+    return {"sources": config.SOURCE_INFO}
+
+
 @app.get("/api/settings")
 async def get_settings(tenant_id: str = Depends(verify_clerk_token)):
     with tenant_session(tenant_id) as db:

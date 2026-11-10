@@ -19,6 +19,24 @@ TRUTHY = {"1", "true", "yes", "on"}
 REGIONS = ("US", "GB", "AU", "CA", "AE", "KE")
 SOURCES = ("gmaps", "duckduckgo-places", "yellowpages-intl")
 
+SOURCE_INFO: dict[str, dict] = {
+    "gmaps": {
+        "label": "Google Maps",
+        "degraded": False,
+        "note": "",
+    },
+    "duckduckgo-places": {
+        "label": "DuckDuckGo Places",
+        "degraded": True,
+        "note": "DuckDuckGo places endpoint currently triggers anti-bot error responses; zero results returned.",
+    },
+    "yellowpages-intl": {
+        "label": "YellowPages Intl",
+        "degraded": False,
+        "note": "",
+    },
+}
+
 MAX_LEAD_LIMIT = 50
 MAX_QUERY_LENGTH = 200
 MIN_QUERY_LENGTH = 2

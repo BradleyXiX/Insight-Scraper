@@ -56,11 +56,47 @@ export const REGION_OPTIONS = [
   { value: "KE", label: "Kenya" },
 ] as const;
 
-export const SOURCE_OPTIONS = [
-  { value: "gmaps", label: "Google Maps" },
-  { value: "duckduckgo-places", label: "DuckDuckGo Places" },
-  { value: "yellowpages-intl", label: "YellowPages Intl" },
-] as const;
+export interface SourceInfo {
+  label: string;
+  degraded: boolean;
+  note: string;
+}
+
+export type SourceMap = Record<string, SourceInfo>;
+
+export const DEFAULT_SOURCE_INFO: SourceMap = {
+  gmaps: {
+    label: "Google Maps",
+    degraded: false,
+    note: "",
+  },
+  "duckduckgo-places": {
+    label: "DuckDuckGo Places",
+    degraded: true,
+    note: "DuckDuckGo places endpoint currently triggers anti-bot error responses; zero results returned.",
+  },
+  "yellowpages-intl": {
+    label: "YellowPages Intl",
+    degraded: false,
+    note: "",
+  },
+};
+
+export interface SourceOption {
+  value: string;
+  label: string;
+  degraded: boolean;
+  note: string;
+}
+
+export const SOURCE_OPTIONS: SourceOption[] = Object.entries(DEFAULT_SOURCE_INFO).map(
+  ([value, info]) => ({
+    value,
+    label: info.label,
+    degraded: info.degraded,
+    note: info.note,
+  }),
+);
 
 export const REGION_VALUES = REGION_OPTIONS.map((option) => option.value);
 export const SOURCE_VALUES = SOURCE_OPTIONS.map((option) => option.value);
@@ -179,6 +215,10 @@ export function deleteJob(getToken: GetToken, jobId: string): Promise<Response> 
 
 export function getSettings(getToken: GetToken): Promise<Response> {
   return apiRequest("/api/settings", getToken);
+}
+
+export function getSources(getToken: GetToken): Promise<Response> {
+  return apiRequest("/api/sources", getToken);
 }
 
 export function updateSettings(

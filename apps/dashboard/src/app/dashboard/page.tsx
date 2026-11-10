@@ -5,18 +5,20 @@ import { Search, Download, AlertCircle, Play, ChevronDown, FileJson } from "luci
 import { useAppAuth } from "@/lib/app-auth";
 import {
   DEFAULT_SETTINGS,
+  DEFAULT_SOURCE_INFO,
   getJob,
   getJobLeads,
   getSettings,
+  getSources,
   isActiveJob,
   jobStartedAt,
   listJobs,
   REGION_OPTIONS,
-  SOURCE_OPTIONS,
   startScrape,
   cancelJob,
   type JobPage,
   type ScrapeJob,
+  type SourceMap,
   type WorkspaceSettings,
 } from "@/lib/jobs";
 import { NETWORK_FAILURE, readFailure } from "@/lib/errors";
@@ -89,6 +91,7 @@ export default function DashboardPage() {
   const [region, setRegion] = useState(DEFAULT_SETTINGS.default_region);
   const [source, setSource] = useState(DEFAULT_SETTINGS.default_source);
   const [limit, setLimit] = useState(DEFAULT_SETTINGS.default_limit);
+  const [sourceMap, setSourceMap] = useState<SourceMap>(DEFAULT_SOURCE_INFO);
 
   const [job, setJob] = useState<ScrapeJob | null>(null);
   const [activeJobId, setActiveJobId] = useState<string | null>(null);
@@ -125,6 +128,18 @@ export default function DashboardPage() {
         setRegion(settings.default_region);
         setSource(settings.default_source);
         setLimit(settings.default_limit);
+      }
+
+      try {
+        const sourcesResponse = await getSources(getToken);
+        if (sourcesResponse.ok) {
+          const sourcesPayload: { sources?: SourceMap } = await sourcesResponse.json();
+          if (sourcesPayload.sources) {
+            setSourceMap(sourcesPayload.sources);
+          }
+        }
+      } catch {
+        // Fall back to built-in source metadata
       }
 
       const jobsResponse = await listJobs(getToken, { limit: 1, offset: 0 });
@@ -221,6 +236,14 @@ export default function DashboardPage() {
   }, [activeJobId, getToken, loadLeads]);
 
   const isRunning = scrapeState.phase === "running" || Boolean(activeJobId);
+
+  const sourceOptions = Object.entries(sourceMap).map(([value, info]) => ({
+    value,
+    label: info.label,
+    degraded: info.degraded,
+    note: info.note,
+  }));
+  const activeSourceInfo = sourceMap[source];
 
   const handleScrape = async (event?: React.FormEvent) => {
     event?.preventDefault();
@@ -379,22 +402,29 @@ export default function DashboardPage() {
               </div>
             </div>
 
-            <div className="relative w-full md:w-52">
-              <select
-                value={source}
-                onChange={(event) => setSource(event.target.value)}
-                className="w-full bg-surface border border-border rounded-none py-3 pl-4 pr-10 text-white focus:outline-none focus:border-accent font-mono text-sm cursor-pointer appearance-none"
-                aria-label="Scraping source"
-              >
-                {SOURCE_OPTIONS.map((option) => (
-                  <option key={option.value} value={option.value} className="bg-surface text-white">
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-              <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-3 text-foreground/50">
-                <ChevronDown className="w-4 h-4" />
+            <div className="flex flex-col w-full md:w-52">
+              <div className="relative w-full">
+                <select
+                  value={source}
+                  onChange={(event) => setSource(event.target.value)}
+                  className="w-full bg-surface border border-border rounded-none py-3 pl-4 pr-10 text-white focus:outline-none focus:border-accent font-mono text-sm cursor-pointer appearance-none"
+                  aria-label="Scraping source"
+                >
+                  {sourceOptions.map((option) => (
+                    <option key={option.value} value={option.value} className="bg-surface text-white">
+                      {option.label}{option.degraded ? " (Degraded)" : ""}
+                    </option>
+                  ))}
+                </select>
+                <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-3 text-foreground/50">
+                  <ChevronDown className="w-4 h-4" />
+                </div>
               </div>
+              {activeSourceInfo?.degraded && activeSourceInfo.note && (
+                <p className="text-xs font-mono text-attention mt-1">
+                  {activeSourceInfo.note}
+                </p>
+              )}
             </div>
 
             <div className="relative w-full md:w-32">
