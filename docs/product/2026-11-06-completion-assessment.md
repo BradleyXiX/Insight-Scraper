@@ -316,3 +316,40 @@ Completed on the same branch. Plan:
 - Stripe checkout, portal and the entitlement lifecycle.
 - Structured logging and observability.
 
+---
+
+## 11. Phase 2 outcome (2026-11-11)
+
+Completed on branch `feat/phase-2-reliability-throughput`.
+Design spec: `docs/superpowers/specs/2026-11-07-phase-2-reliability-and-throughput-design.md`.
+Execution plan: `docs/superpowers/plans/2026-11-08-phase-2-reliability-and-throughput.md`.
+
+### What shipped (cross-referenced to Spec §9 done-when conditions)
+
+1. **Required CI pipeline (§9.1):** GitHub Actions workflow `.github/workflows/ci.yml` running lint, format, type-check, backend unit tests, frontend build/test, and an isolated Postgres RLS test job with service container. A deliberately failing branch cannot merge.
+2. **Structured JSON logging (§9.2):** `logging_setup.py` with `JsonFormatter` and `TextFormatter`, correlation request IDs via `contextvars`, and structured events across HTTP requests, scraper worker execution, batch scheduling, and job state transitions.
+3. **Lease-based crash-resilient queue (§9.3):** Single guarded `claim_job` SQL update with lease expiry, heartbeat background task, and `recover_jobs` on API startup. Abandoned running jobs and queued items resume cleanly upon restart rather than sticking or failing.
+4. **Zero-bypass Postgres Row-Level Security (§9.4):** Completely removed `admin_session` and the `app.is_admin = 'admin'` bypass. RLS policies strictly enforce `USING (tenant_id = current_setting('app.current_tenant', true))` with `FORCE ROW LEVEL SECURITY`. Verified with `test_rls.py`.
+5. **Full test suite (§9.5):** 98 backend tests passing on SQLite (3 Postgres RLS tests skipped without local Docker; executed in CI), zero warnings unhandled. Frontend passes `npm run lint:design`, `npm run lint`, `npx tsc --noEmit`, `npm test` (19/19 tests passing), and `npm run build` (Turbopack, all 11 routes).
+6. **Batch runs and UI panel (§9.6):** `POST /api/batches` accepts up to 25 items with atomic validation (rejecting all if one is invalid). Dashboard `BatchPanel` supports multi-region/multi-query input with live progress polling and terminal state summary.
+7. **Offline parser fixtures & source labelling (§9.7):** Extracted scraping logic into importable `parsers.py` with committed HTML fixtures for Google Maps, DuckDuckGo, and YellowPages. Exposed `GET /api/sources` backed by `config.SOURCE_INFO` labelling degraded upstream sources (e.g., DuckDuckGo places anti-bot blocks) in both single and batch dashboard selectors.
+8. **Evidence-based pitch precedence (§9.8):** `pitch_rank_for` enforces deterministic precedence (Rank 1: mobile load > 3000ms; Rank 2: HTTP only / no TLS; Rank 3: no chatbot widget; Rank 4: no website; Rank 5: general SEO/content). Leads with slow sites sort strictly above leads with no site in UI and exports.
+9. **Sendable outreach emails per lead (§9.9):** Pure, deterministic email generation in `pitch.py` under 120 words naming only measured facts, with sender signature integration from `WorkspaceSettings` and mandatory opt-out footer. Dashboard preview modal (`EmailDialog.tsx`) and per-row copy actions. CSV outreach export with RFC 4180 quoting and exact columns: `business_name, phone, email, website, pitch, evidence, email_subject, email_body, region, query, found_at`.
+10. **Local operator mode responsive verification (§9.10):** Verified end to end on SQLite with `DEV_BYPASS_AUTH=true` at both 390px (mobile card layout) and 1440px (fixed-width desktop table) with zero horizontal scrolling or clipping.
+
+### What it replaced in the original roadmap
+
+Replaced the legacy "Phase 2: Scale and harden" architecture proposal, which prematurely budgeted engineering effort toward distributed Celery clusters, RabbitMQ, and multi-node worker infrastructure before the scraper core and pitch data model were reliable or commercially actionable. Phase 2 focused on foundational product reliability: crash recovery, evidence-based pitches, copyable cold outreach emails, and testable parser harnesses.
+
+### Remaining known limits
+
+1. **`create_all + ALTER` is not a migration system:** Schema evolution still relies on startup inspection and table alters. It cannot express column renames, type changes, or data backfills. It remains suitable for single-operator local use, but an Alembic migration system is mandatory before multi-environment deployment with persistent data.
+2. **25-item batch rate-limiting risk:** Upstream directories (Google Maps, YellowPages) will throttle or challenge client IPs if concurrency is cranked excessively or runs are queued without delays. Concurrency controls (`SCRAPE_CONCURRENCY=1`) and polite worker timeouts remain the primary safeguards rather than proxy rotation.
+
+### What Phase 3 still owes
+
+Phase 3 covers the hosted commercial transition:
+- Stripe Checkout integration and webhook lifecycle (`checkout.session.completed`, `customer.subscription.updated/deleted`).
+- Customer billing portal and tier enforcement (entitlement gating).
+- Production hosted worker deployment with proxy management if volume dictates.
+

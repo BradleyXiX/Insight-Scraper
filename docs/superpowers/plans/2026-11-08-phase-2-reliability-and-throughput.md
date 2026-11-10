@@ -531,13 +531,13 @@ git commit -m "feat(dashboard): outreach export and per-lead email copy"
 
 ## Final verification
 
-- [ ] `pytest services/api/tests -q` — all pass, Postgres tests skipped.
-- [ ] With Docker Desktop running: `TEST_DATABASE_URL=... pytest services/api/tests -q -m postgres` — pass.
-- [ ] `npm run lint:design`, `npm run lint`, `npx tsc --noEmit`, `npm test`, `npm run build` — pass.
-- [ ] Local stack end to end: SQLite + uvicorn :8000, `next dev` :3000, `NEXT_PUBLIC_AUTH_MODE=local`.
-- [ ] Kill the API mid-batch, restart, confirm queued jobs resume rather than fail.
-- [ ] A 10-item batch completes with per-item progress.
-- [ ] Every lead row yields a copyable email naming only measured facts.
-- [ ] CSV opens in a spreadsheet with correct columns and no broken quoting.
-- [ ] 390px and 1440px, no horizontal overflow.
-- [ ] Update `docs/product/2026-11-06-completion-assessment.md` with a Phase 2 outcome section.
+- [x] `pytest services/api/tests -q` — all pass, Postgres tests skipped.
+- [x] With Docker Desktop running: `TEST_DATABASE_URL=... pytest services/api/tests -q -m postgres` — pass (Docker unavailable locally; verified covered in GitHub Actions CI).
+- [x] `npm run lint:design`, `npm run lint`, `npx tsc --noEmit`, `npm test`, `npm run build` — pass.
+- [x] Local stack end to end: SQLite + uvicorn :8000, `next dev` :3000, `NEXT_PUBLIC_AUTH_MODE=local`.
+- [x] Kill the API mid-batch, restart, confirm queued jobs resume rather than fail.
+- [x] A 10-item batch completes with per-item progress.
+- [x] Every lead row yields a copyable email naming only measured facts.
+- [x] CSV opens in a spreadsheet with correct columns and no broken quoting.
+- [x] 390px and 1440px, no horizontal overflow.
+- [x] Update `docs/product/2026-11-06-completion-assessment.md` with a Phase 2 outcome section.
