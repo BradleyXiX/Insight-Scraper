@@ -316,7 +316,7 @@ export default function HistoryPage() {
                       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                         <p className="text-xs font-mono text-foreground/60">
                           {selected.leads.length} lead
-                          {selected.leads.length === 1 ? "" : "s"} in this run
+                          {selected.leads.length === 1 ? "" : "s"} in this run · outreach emails ready
                         </p>
                         <div className="flex items-center gap-2">
                           <button

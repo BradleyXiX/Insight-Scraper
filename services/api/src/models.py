@@ -37,6 +37,10 @@ class ScrapeJob(Base):
     result_count = Column(Integer, nullable=False, default=0)
     duplicate_count = Column(Integer, nullable=False, default=0)
     error = Column(String, nullable=True)
+    attempt = Column(Integer, nullable=False, default=0, server_default="0")
+    lease_expires_at = Column(DateTime, nullable=True)
+    worker_id = Column(String, nullable=True)
+    batch_id = Column(String(36), nullable=True, index=True)
     created_at = Column(DateTime, default=_utcnow, index=True)
     started_at = Column(DateTime, nullable=True)
     finished_at = Column(DateTime, nullable=True)
@@ -48,6 +52,9 @@ class WorkspaceSettings(Base):
     default_region = Column(String, nullable=False, default="US")
     default_source = Column(String, nullable=False, default="gmaps")
     default_limit = Column(Integer, nullable=False, default=25)
+    sender_name = Column(String, nullable=True)
+    sender_email = Column(String, nullable=True)
+    sender_phone = Column(String, nullable=True)
     updated_at = Column(DateTime, default=_utcnow, onupdate=_utcnow)
 
 
@@ -66,5 +73,6 @@ class Lead(Base):
     has_chatbot_widget = Column(Boolean, default=False, nullable=True)
     mobile_load_ms = Column(Integer, default=0, nullable=True)
     pitch_hook = Column(String, nullable=True)
+    pitch_rank = Column(Integer, nullable=True)
     region = Column(String, default="US", nullable=True)
     created_at = Column(DateTime, default=_utcnow)

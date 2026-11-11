@@ -27,6 +27,16 @@ export interface LeadItem {
   "Pitch"?: string;
   pitch_hook?: string;
   "Pitch_Hook"?: string;
+  pitch_rank?: number | null;
+  "Pitch_Rank"?: number | null;
+  pitchRank?: number | null;
+  email_subject?: string;
+  "Email_Subject"?: string;
+  emailSubject?: string;
+  email_body?: string;
+  "Email_Body"?: string;
+  emailBody?: string;
+  evidence?: string;
   query?: string;
   search_query?: string;
   "Search Query"?: string;
@@ -68,9 +78,54 @@ export function getPitchHook(lead: LeadItem): string {
   return QUALIFIED_PITCH;
 }
 
-export function pitchTone(pitch: string): PitchTone {
-  if (pitch === SPEED_PITCH) return "attention";
-  if (pitch === RAG_PITCH) return "accent";
+export function getPitchRank(lead: LeadItem): number | null {
+  if (lead.pitch_rank !== undefined && lead.pitch_rank !== null) {
+    const val = Number(lead.pitch_rank);
+    return Number.isFinite(val) ? val : null;
+  }
+  if (lead["Pitch_Rank"] !== undefined && lead["Pitch_Rank"] !== null) {
+    const val = Number(lead["Pitch_Rank"]);
+    return Number.isFinite(val) ? val : null;
+  }
+  if (lead.pitchRank !== undefined && lead.pitchRank !== null) {
+    const val = Number(lead.pitchRank);
+    return Number.isFinite(val) ? val : null;
+  }
+  return null;
+}
+
+export const pitchRank = getPitchRank;
+
+export function sortByPitch(leads: LeadItem[]): LeadItem[] {
+  return [...leads].sort((a, b) => {
+    const rankA = getPitchRank(a);
+    const rankB = getPitchRank(b);
+
+    if (rankA === null && rankB === null) return 0;
+    if (rankA === null) return 1;
+    if (rankB === null) return -1;
+
+    if (rankA !== rankB) {
+      return rankA - rankB;
+    }
+
+    const loadA = getMobileLoadMs(a);
+    const loadB = getMobileLoadMs(b);
+    return loadB - loadA;
+  });
+}
+
+export function pitchTone(pitch: string, rank?: number | null): PitchTone {
+  if (rank === 1 || rank === 2) return "attention";
+  if (rank === 3) return "accent";
+  if (rank === 4 || rank === 5) return "neutral";
+
+  if (pitch === SPEED_PITCH || /speed|load/i.test(pitch) || /https|not secure/i.test(pitch)) {
+    return "attention";
+  }
+  if (pitch === RAG_PITCH || /rag|bot/i.test(pitch)) {
+    return "accent";
+  }
   return "neutral";
 }
 
@@ -110,47 +165,75 @@ export function computeKpis(leads: LeadItem[]): Kpis {
   };
 }
 
+export function getEmailSubject(lead: LeadItem): string {
+  return lead.email_subject || lead["Email_Subject"] || lead.emailSubject || "";
+}
+
+export function getEmailBody(lead: LeadItem): string {
+  return lead.email_body || lead["Email_Body"] || lead.emailBody || "";
+}
+
+export function evidence(lead: LeadItem): string {
+  const parts: string[] = [];
+  const loadMs = getMobileLoadMs(lead);
+  if (loadMs > 0) {
+    parts.push(`${(loadMs / 1000).toFixed(1)}s mobile load`);
+  }
+
+  const hasChatbot = getHasChatbot(lead);
+  const website = (lead.website || lead["Website"] || "").trim();
+  if (!hasChatbot && website) {
+    parts.push("no chat widget");
+  }
+
+  if (!website) {
+    parts.push("no website");
+  } else if (website.toLowerCase().startsWith("http://")) {
+    parts.push("no HTTPS");
+  }
+
+  return parts.join(" · ");
+}
+
 export function toCsv(leads: LeadItem[], fallback: { region: string; query: string }): string {
   const headers = [
-    "Business Name",
-    "Phone",
-    "Website",
-    "Email",
-    "Socials",
-    "Region",
-    "Has_Chatbot_Widget",
-    "Mobile_Load_Ms",
-    "Pitch_Hook",
-    "Contact Details",
-    "Search Query",
-    "Extracted At",
+    "business_name",
+    "phone",
+    "email",
+    "website",
+    "pitch",
+    "evidence",
+    "email_subject",
+    "email_body",
+    "region",
+    "query",
+    "found_at",
   ];
 
-  const rows = leads.map((lead) => {
+  const sorted = sortByPitch(leads);
+  const rows = sorted.map((lead) => {
     const name = lead.business_name || lead["Business Name"] || lead.name || "Unknown Business";
     const phone = lead.phone || lead["Phone"] || lead.contact || lead["Contact"] || "Hidden";
-    const website = lead.website || lead["Website"] || "";
     const email = lead.email || lead["Email"] || "";
-    const socials = lead.socials || lead["Socials"] || "";
+    const website = lead.website || lead["Website"] || "";
+    const pitch = getPitchHook(lead);
+    const ev = lead.evidence || evidence(lead);
+    const subject = getEmailSubject(lead);
+    const body = getEmailBody(lead);
     const reg = lead.region || lead["Region"] || fallback.region;
-    const hasChatbot = getHasChatbot(lead);
-    const mobileLoadMs = getMobileLoadMs(lead);
-    const pitchHook = getPitchHook(lead);
-    const contact = lead.contact || lead["Contact"] || phone;
     const searchQuery = lead.query || lead.search_query || lead["Search Query"] || fallback.query;
     const createdAt = lead.created_at || new Date().toISOString();
 
     return [
       name,
       phone,
-      website,
       email,
-      socials,
+      website,
+      pitch,
+      ev,
+      subject,
+      body,
       reg,
-      hasChatbot ? "TRUE" : "FALSE",
-      mobileLoadMs,
-      pitchHook,
-      contact,
       searchQuery,
       createdAt,
     ]
@@ -167,21 +250,26 @@ export function toCsv(leads: LeadItem[], fallback: { region: string; query: stri
  * without guessing which key a value came from.
  */
 export function toJson(leads: LeadItem[], fallback: { region: string; query: string }): string {
-  const records = leads.map((lead) => ({
+  const sorted = sortByPitch(leads);
+  const records = sorted.map((lead) => ({
     business_name:
       lead.business_name || lead["Business Name"] || lead.name || "Unknown Business",
     phone: lead.phone || lead["Phone"] || lead.contact || lead["Contact"] || "Hidden",
-    website: lead.website || lead["Website"] || "",
     email: lead.email || lead["Email"] || "",
-    socials: lead.socials || lead["Socials"] || "",
+    website: lead.website || lead["Website"] || "",
+    pitch: getPitchHook(lead),
+    pitch_rank: getPitchRank(lead),
+    evidence: lead.evidence || evidence(lead),
+    email_subject: getEmailSubject(lead),
+    email_body: getEmailBody(lead),
     region: lead.region || lead["Region"] || fallback.region,
-    has_chatbot_widget: getHasChatbot(lead),
-    mobile_load_ms: getMobileLoadMs(lead),
-    pitch_hook: getPitchHook(lead),
-    contact: lead.contact || lead["Contact"] || "",
+    query:
+      lead.query || lead.search_query || lead["Search Query"] || fallback.query,
     search_query:
       lead.query || lead.search_query || lead["Search Query"] || fallback.query,
-    extracted_at: lead.created_at || new Date().toISOString(),
+    found_at: lead.created_at || new Date().toISOString(),
+    has_chatbot_widget: getHasChatbot(lead),
+    mobile_load_ms: getMobileLoadMs(lead),
   }));
 
   return JSON.stringify(records, null, 2);

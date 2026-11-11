@@ -17,13 +17,24 @@ from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import text
 
 SRC = Path(__file__).resolve().parents[1] / "src"
 sys.path.insert(0, str(SRC))
 
+# PostgreSQL superusers bypass RLS even with FORCE ROW LEVEL SECURITY, so a test
+# that connects as `postgres` proves nothing about tenant isolation. The RLS tests
+# switch to this non-superuser, non-owner role before asserting.
+POSTGRES_APP_ROLE = "insight_app"
+
 _TEST_DIR = Path(tempfile.mkdtemp(prefix="insight-scraper-tests-"))
 
-_DATABASE_URL = f"sqlite:///{(_TEST_DIR / 'api.db').as_posix()}"
+_TEST_DATABASE_URL = os.getenv("TEST_DATABASE_URL")
+_DATABASE_URL = (
+    _TEST_DATABASE_URL
+    if _TEST_DATABASE_URL
+    else f"sqlite:///{(_TEST_DIR / 'api.db').as_posix()}"
+)
 
 
 def _apply_test_env() -> None:
@@ -53,12 +64,74 @@ import jobs as jobs_module  # noqa: E402
 import main  # noqa: E402
 from models import Base  # noqa: E402
 
+if _TEST_DATABASE_URL:
+    import init_db
+
+    init_db.init_db()
+
+
+def _prepare_postgres_app_role() -> None:
+    """Create the role RLS actually applies to, and grant it table privileges.
+
+    `fresh_database` drops and recreates the schema for every test, so the grants
+    have to be reissued after each `init_db()`.
+    """
+    with db_module.engine.begin() as conn:
+        conn.execute(
+            text(
+                f"""
+                DO $$
+                BEGIN
+                    IF NOT EXISTS (
+                        SELECT 1 FROM pg_roles WHERE rolname = '{POSTGRES_APP_ROLE}'
+                    ) THEN
+                        CREATE ROLE {POSTGRES_APP_ROLE} NOLOGIN;
+                    END IF;
+                END
+                $$;
+                """
+            )
+        )
+        conn.execute(text(f"GRANT USAGE ON SCHEMA public TO {POSTGRES_APP_ROLE}"))
+        conn.execute(
+            text(
+                "GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public "
+                f"TO {POSTGRES_APP_ROLE}"
+            )
+        )
+        conn.execute(
+            text(
+                "GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public "
+                f"TO {POSTGRES_APP_ROLE}"
+            )
+        )
+
+
+@pytest.fixture
+def postgres_app_role() -> str:
+    """The role the RLS tests impersonate so the policies actually apply."""
+    return POSTGRES_APP_ROLE
+
+
+def pytest_collection_modifyitems(config, items):
+    if not os.getenv("TEST_DATABASE_URL"):
+        skip_postgres = pytest.mark.skip(reason="requires TEST_DATABASE_URL (PostgreSQL)")
+        for item in items:
+            if "postgres" in item.keywords:
+                item.add_marker(skip_postgres)
+
 
 @pytest.fixture(autouse=True)
 def fresh_database():
     """Give every test an empty schema and a clean in-process job registry."""
     Base.metadata.drop_all(bind=db_module.engine)
-    Base.metadata.create_all(bind=db_module.engine)
+    if _TEST_DATABASE_URL:
+        import init_db
+
+        init_db.init_db()
+        _prepare_postgres_app_role()
+    else:
+        Base.metadata.create_all(bind=db_module.engine)
     jobs_module._running.clear()
     jobs_module._tasks.clear()
     yield
@@ -97,7 +170,7 @@ def no_auto_start(monkeypatch) -> list[str]:
     start a competing task.
     """
     started: list[str] = []
-    monkeypatch.setattr(jobs_module, "start_job", started.append)
+    monkeypatch.setattr(jobs_module, "start_job", lambda job_id, *args: started.append(job_id))
     return started
 
 

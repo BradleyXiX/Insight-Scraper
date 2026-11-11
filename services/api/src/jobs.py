@@ -6,10 +6,15 @@ queue is deliberately out of scope until the hosted phase.
 """
 
 import asyncio
+import logging
 import os
-from datetime import datetime, timezone
+import uuid
+from datetime import datetime, timedelta, timezone
 
-from db import admin_session, tenant_session
+from sqlalchemy import text
+
+from db import tenant_session
+from logging_setup import log_event
 from models import Lead, ScrapeJob
 from scraper_runner import ScraperError, ScraperTimeout, run_worker_async
 
@@ -17,6 +22,7 @@ TERMINAL_STATUSES = {"succeeded", "empty", "failed", "cancelled"}
 
 _running: dict[str, asyncio.subprocess.Process] = {}
 _tasks: set[asyncio.Task] = set()
+_SEM = asyncio.Semaphore(int(os.getenv("SCRAPE_CONCURRENCY", "1")))
 
 
 def utcnow() -> datetime:
@@ -30,6 +36,7 @@ def _iso(value: datetime | None) -> str | None:
 def serialize_job(job: ScrapeJob) -> dict:
     return {
         "id": job.id,
+        "batch_id": job.batch_id,
         "query": job.query,
         "region": job.region,
         "source": job.source,
@@ -51,33 +58,69 @@ def create_job(
     region: str,
     source: str,
     limit: int,
+    batch_id: str | None = None,
 ) -> ScrapeJob:
-    with admin_session() as db:
+    with tenant_session(tenant_id) as db:
         job = ScrapeJob(
             tenant_id=tenant_id,
             query=query,
             region=region,
             source=source,
             limit=limit,
+            batch_id=batch_id,
             status="queued",
         )
         db.add(job)
         db.flush()
         db.refresh(job)
+        log_event(
+            "job.queued",
+            job_id=job.id,
+            tenant_id=tenant_id,
+            query=query,
+            region=region,
+            source=source,
+            limit=limit,
+            batch_id=batch_id,
+        )
         return job
 
 
+def create_batch(
+    tenant_id: str,
+    items: list[dict],
+) -> tuple[str, list[ScrapeJob]]:
+    batch_id = str(uuid.uuid4())
+    created: list[ScrapeJob] = []
+    for item in items:
+        job = create_job(
+            tenant_id=tenant_id,
+            query=item["query"] if isinstance(item, dict) else item.query,
+            region=item["region"] if isinstance(item, dict) else item.region,
+            source=item["source"] if isinstance(item, dict) else item.source,
+            limit=item["limit"] if isinstance(item, dict) else item.limit,
+            batch_id=batch_id,
+        )
+        created.append(job)
+        start_job(job.id, tenant_id)
+    return batch_id, created
+
+
 def get_job(tenant_id: str, job_id: str) -> ScrapeJob | None:
-    with admin_session() as db:
+    with tenant_session(tenant_id) as db:
         job = db.get(ScrapeJob, job_id)
         if job is None or job.tenant_id != tenant_id:
             return None
         return job
 
 
-def list_jobs(tenant_id: str, limit: int, offset: int) -> tuple[list[ScrapeJob], int]:
-    with admin_session() as db:
+def list_jobs(
+    tenant_id: str, limit: int, offset: int, batch_id: str | None = None
+) -> tuple[list[ScrapeJob], int]:
+    with tenant_session(tenant_id) as db:
         query = db.query(ScrapeJob).filter(ScrapeJob.tenant_id == tenant_id)
+        if batch_id:
+            query = query.filter(ScrapeJob.batch_id == batch_id)
         total = query.count()
         jobs = (
             query.order_by(ScrapeJob.created_at.desc())
@@ -89,7 +132,7 @@ def list_jobs(tenant_id: str, limit: int, offset: int) -> tuple[list[ScrapeJob],
 
 
 def delete_job(tenant_id: str, job_id: str) -> bool:
-    with admin_session() as db:
+    with tenant_session(tenant_id) as db:
         job = db.get(ScrapeJob, job_id)
         if job is None or job.tenant_id != tenant_id:
             return False
@@ -101,7 +144,7 @@ def delete_job(tenant_id: str, job_id: str) -> bool:
 
 
 def leads_for_job(tenant_id: str, job_id: str) -> list[Lead] | None:
-    with admin_session() as db:
+    with tenant_session(tenant_id) as db:
         job = db.get(ScrapeJob, job_id)
         if job is None or job.tenant_id != tenant_id:
             return None
@@ -115,7 +158,7 @@ def leads_for_job(tenant_id: str, job_id: str) -> list[Lead] | None:
 
 def request_cancel(tenant_id: str, job_id: str) -> ScrapeJob | None:
     """Mark a job cancelled and terminate its worker when one is running."""
-    with admin_session() as db:
+    with tenant_session(tenant_id) as db:
         job = db.get(ScrapeJob, job_id)
         if job is None or job.tenant_id != tenant_id:
             return None
@@ -126,6 +169,7 @@ def request_cancel(tenant_id: str, job_id: str) -> ScrapeJob | None:
                 job.status = "cancelled"
                 job.finished_at = utcnow()
                 job.error = "Cancelled before it started."
+                log_event("job.cancelled", job_id=job_id, tenant_id=tenant_id)
 
         was_running = job.status == "running"
         db.flush()
@@ -206,6 +250,7 @@ def _save_leads(
                     has_chatbot_widget=bool(lead.get("Has_Chatbot_Widget", False)),
                     mobile_load_ms=int(lead.get("Mobile_Load_Ms", 0) or 0),
                     pitch_hook=lead.get("Pitch_Hook", ""),
+                    pitch_rank=lead.get("Pitch_Rank") or lead.get("pitch_rank"),
                 )
             )
             inserted += 1
@@ -216,117 +261,306 @@ def _save_leads(
             job.duplicate_count = duplicates
             job.status = "succeeded" if inserted > 0 else "empty"
             job.finished_at = utcnow()
+            job.lease_expires_at = None
 
         return inserted, duplicates
 
 
-def _finish(job_id: str, status: str, error: str | None = None) -> None:
-    with admin_session() as db:
+def _finish(tenant_id: str, job_id: str, status: str, error: str | None = None) -> None:
+    with tenant_session(tenant_id) as db:
         job = db.get(ScrapeJob, job_id)
         if job is None:
             return
         job.status = status
         job.error = error
         job.finished_at = utcnow()
+        job.lease_expires_at = None
 
 
-def _is_cancelled(job_id: str) -> bool:
-    with admin_session() as db:
+def _is_cancelled(tenant_id: str, job_id: str) -> bool:
+    with tenant_session(tenant_id) as db:
         job = db.get(ScrapeJob, job_id)
         return bool(job is not None and (job.cancel_requested or job.status == "cancelled"))
 
 
-async def execute_job(job_id: str) -> None:
-    """Run one job to completion and record the outcome."""
-    with admin_session() as db:
-        job = db.get(ScrapeJob, job_id)
-        if job is None or job.status != "queued":
-            return
-        if job.cancel_requested:
-            job.status = "cancelled"
-            job.error = "Cancelled before it started."
-            job.finished_at = utcnow()
-            return
+def claim_job(tenant_id: str, job_id: str, worker_id: str, lease_seconds: int) -> dict | None:
+    now = utcnow()
+    lease_until = now + timedelta(seconds=lease_seconds)
+    with tenant_session(tenant_id) as db:
+        stmt = text(
+            """
+            UPDATE scrape_jobs
+               SET status = 'running',
+                   worker_id = :worker_id,
+                   lease_expires_at = :lease_until,
+                   attempt = attempt + 1,
+                   started_at = COALESCE(started_at, :now)
+             WHERE id = :job_id
+               AND status = 'queued'
+               AND cancel_requested = false
+            RETURNING tenant_id, query, region, source, "limit", attempt
+            """
+        )
+        result = db.execute(
+            stmt,
+            {
+                "worker_id": worker_id,
+                "lease_until": lease_until,
+                "now": now,
+                "job_id": job_id,
+            },
+        ).mappings().first()
 
-        job.status = "running"
-        job.started_at = utcnow()
-        params = {
-            "tenant_id": job.tenant_id,
-            "query": job.query,
-            "region": job.region,
-            "source": job.source,
-            "limit": job.limit,
-        }
+        if result is not None:
+            log_event("job.claimed", job_id=job_id, tenant_id=tenant_id)
+            return dict(result)
+
+        cancel_stmt = text(
+            """
+            UPDATE scrape_jobs
+               SET status = 'cancelled',
+                   finished_at = :now,
+                   error = 'Cancelled before it started.'
+             WHERE id = :job_id
+               AND status = 'queued'
+               AND cancel_requested = true
+            RETURNING id
+            """
+        )
+        cancelled = db.execute(cancel_stmt, {"now": now, "job_id": job_id}).first()
+        if cancelled is not None:
+            log_event("job.cancelled", job_id=job_id, tenant_id=tenant_id)
+
+        return None
+
+
+def heartbeat(tenant_id: str, job_id: str, worker_id: str, lease_seconds: int) -> bool:
+    now = utcnow()
+    lease_until = now + timedelta(seconds=lease_seconds)
+    with tenant_session(tenant_id) as db:
+        stmt = text(
+            """
+            UPDATE scrape_jobs
+               SET lease_expires_at = :lease_until
+             WHERE id = :job_id
+               AND worker_id = :worker_id
+               AND status = 'running'
+            """
+        )
+        res = db.execute(
+            stmt,
+            {
+                "lease_until": lease_until,
+                "job_id": job_id,
+                "worker_id": worker_id,
+            },
+        )
+        return res.rowcount > 0
+
+
+def recover_jobs(tenant_id: str, max_attempts: int = 3) -> dict[str, int]:
+    now = utcnow()
+    requeued = 0
+    failed = 0
+    cancelled = 0
+
+    with tenant_session(tenant_id) as db:
+        expired_jobs = (
+            db.query(ScrapeJob)
+            .filter(
+                ScrapeJob.tenant_id == tenant_id,
+                ScrapeJob.status == "running",
+                ScrapeJob.lease_expires_at < now,
+            )
+            .all()
+        )
+        for job in expired_jobs:
+            if job.attempt < max_attempts:
+                job.status = "queued"
+                job.lease_expires_at = None
+                job.worker_id = None
+                requeued += 1
+                log_event("job.requeued", job_id=job.id, tenant_id=tenant_id, attempt=job.attempt)
+            else:
+                job.status = "failed"
+                job.finished_at = now
+                job.lease_expires_at = None
+                job.error = f"Gave up after {max_attempts} attempts."
+                failed += 1
+                log_event("job.failed", level=logging.WARNING, job_id=job.id, tenant_id=tenant_id, error=job.error)
+
+        cancelled_jobs = (
+            db.query(ScrapeJob)
+            .filter(
+                ScrapeJob.tenant_id == tenant_id,
+                ScrapeJob.status == "queued",
+                ScrapeJob.cancel_requested.is_(True),
+            )
+            .all()
+        )
+        for job in cancelled_jobs:
+            job.status = "cancelled"
+            job.finished_at = now
+            job.lease_expires_at = None
+            job.error = "Cancelled before it started."
+            cancelled += 1
+            log_event("job.cancelled", job_id=job.id, tenant_id=tenant_id)
+
+    return {"requeued": requeued, "failed": failed, "cancelled": cancelled}
+
+
+async def _heartbeat_loop(tenant_id: str, job_id: str, worker_id: str, lease_seconds: int) -> None:
+    interval = max(5, lease_seconds // 4)
+    while True:
+        await asyncio.sleep(interval)
+        try:
+            ok = heartbeat(tenant_id, job_id, worker_id, lease_seconds)
+            if not ok:
+                break
+        except Exception:
+            pass
+
+
+async def execute_job(job_id: str, tenant_id: str) -> None:
+    """Wait for a scrape slot, then claim and run the job.
+
+    The slot is taken before the claim on purpose. Claiming first marks every item
+    in a batch as `running` while only one is actually scraping, which makes the
+    batch progress list useless. A job waiting for a slot stays `queued`.
+    """
+    async with _SEM:
+        await _run_claimed_job(job_id, tenant_id)
+
+
+async def _run_claimed_job(job_id: str, tenant_id: str) -> None:
+    """Claim and run one job to completion. The caller already holds a slot."""
+    worker_id = f"worker_{uuid.uuid4().hex[:8]}"
+    lease_seconds = int(os.getenv("SCRAPE_LEASE_SECONDS", "60"))
+
+    claim = claim_job(tenant_id, job_id, worker_id, lease_seconds)
+    if claim is None:
+        return
+
+    query = claim["query"]
+    region = claim["region"]
+    source = claim["source"]
+    limit = claim["limit"]
+
+    log_event(
+        "job.started",
+        job_id=job_id,
+        tenant_id=tenant_id,
+        query=query,
+        region=region,
+        source=source,
+        limit=limit,
+    )
 
     def register(process: asyncio.subprocess.Process) -> None:
         _running[job_id] = process
-        if _is_cancelled(job_id):
+        if _is_cancelled(tenant_id, job_id):
             process.terminate()
 
     timeout = int(os.getenv("SCRAPE_TIMEOUT_SECONDS", "300"))
+    started_at = utcnow()
+
+    heartbeat_task = asyncio.create_task(
+        _heartbeat_loop(tenant_id, job_id, worker_id, lease_seconds)
+    )
 
     try:
         leads = await run_worker_async(
-            params["query"],
-            params["region"],
-            params["source"],
-            params["limit"],
+            query,
+            region,
+            source,
+            limit,
             timeout_seconds=timeout,
             on_process=register,
         )
     except ScraperTimeout as exc:
-        if _is_cancelled(job_id):
-            _finish(job_id, "cancelled", "Cancelled by the operator.")
+        if _is_cancelled(tenant_id, job_id):
+            _finish(tenant_id, job_id, "cancelled", "Cancelled by the operator.")
+            log_event("job.cancelled", job_id=job_id, tenant_id=tenant_id)
         else:
-            _finish(job_id, "failed", str(exc))
+            _finish(tenant_id, job_id, "failed", str(exc))
+            log_event(
+                "job.failed",
+                level=logging.WARNING,
+                job_id=job_id,
+                tenant_id=tenant_id,
+                error=str(exc),
+            )
         return
     except ScraperError as exc:
-        # Terminating a cancelled worker makes it exit non-zero, which surfaces as a
-        # ScraperError. Report the cancellation, not a spurious failure.
-        if _is_cancelled(job_id):
-            _finish(job_id, "cancelled", "Cancelled by the operator.")
+        if _is_cancelled(tenant_id, job_id):
+            _finish(tenant_id, job_id, "cancelled", "Cancelled by the operator.")
+            log_event("job.cancelled", job_id=job_id, tenant_id=tenant_id)
         else:
-            _finish(job_id, "failed", str(exc))
+            _finish(tenant_id, job_id, "failed", str(exc))
+            log_event(
+                "job.failed",
+                level=logging.WARNING,
+                job_id=job_id,
+                tenant_id=tenant_id,
+                error=str(exc),
+            )
         return
     except Exception as exc:  # noqa: BLE001 - a job must never stay "running"
-        if _is_cancelled(job_id):
-            _finish(job_id, "cancelled", "Cancelled by the operator.")
+        if _is_cancelled(tenant_id, job_id):
+            _finish(tenant_id, job_id, "cancelled", "Cancelled by the operator.")
+            log_event("job.cancelled", job_id=job_id, tenant_id=tenant_id)
         else:
-            _finish(job_id, "failed", f"Unexpected worker error: {exc}")
+            msg = f"Unexpected worker error: {exc}"
+            _finish(tenant_id, job_id, "failed", msg)
+            log_event(
+                "job.failed",
+                level=logging.WARNING,
+                job_id=job_id,
+                tenant_id=tenant_id,
+                error=msg,
+            )
         return
     finally:
         _running.pop(job_id, None)
+        heartbeat_task.cancel()
+        try:
+            await heartbeat_task
+        except asyncio.CancelledError:
+            pass
 
-    if _is_cancelled(job_id):
-        _finish(job_id, "cancelled", "Cancelled by the operator.")
+    if _is_cancelled(tenant_id, job_id):
+        _finish(tenant_id, job_id, "cancelled", "Cancelled by the operator.")
+        log_event("job.cancelled", job_id=job_id, tenant_id=tenant_id)
         return
 
     try:
-        _save_leads(params["tenant_id"], job_id, params["query"], leads)
+        inserted, duplicates = _save_leads(tenant_id, job_id, query, leads)
+        duration_ms = int((utcnow() - started_at).total_seconds() * 1000)
+        status = "succeeded" if inserted > 0 else "empty"
+        log_event(
+            "job.finished",
+            job_id=job_id,
+            tenant_id=tenant_id,
+            status=status,
+            leads=inserted,
+            duplicates=duplicates,
+            duration_ms=duration_ms,
+        )
     except Exception as exc:  # noqa: BLE001 - surface the save failure on the job
-        _finish(job_id, "failed", f"Could not save leads: {exc}")
+        msg = f"Could not save leads: {exc}"
+        _finish(tenant_id, job_id, "failed", msg)
+        log_event(
+            "job.failed",
+            level=logging.WARNING,
+            job_id=job_id,
+            tenant_id=tenant_id,
+            error=msg,
+        )
 
 
-def start_job(job_id: str) -> None:
+def start_job(job_id: str, tenant_id: str) -> None:
     """Schedule a queued job on the current event loop."""
-    task = asyncio.create_task(execute_job(job_id))
+    task = asyncio.create_task(execute_job(job_id, tenant_id))
     _tasks.add(task)
     task.add_done_callback(_tasks.discard)
 
-
-def mark_stale_jobs_failed() -> None:
-    """After a restart, no in-memory worker exists for queued/running jobs."""
-    try:
-        with admin_session() as db:
-            db.query(ScrapeJob).filter(
-                ScrapeJob.status.in_(("queued", "running"))
-            ).update(
-                {
-                    ScrapeJob.status: "failed",
-                    ScrapeJob.error: "The API restarted before this job finished.",
-                    ScrapeJob.finished_at: utcnow(),
-                },
-                synchronize_session=False,
-            )
-    except Exception as exc:  # noqa: BLE001 - startup must not fail on a brand-new DB
-        print(f"Note: could not mark stale jobs failed: {exc}")

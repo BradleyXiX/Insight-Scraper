@@ -1,4 +1,6 @@
 import os
+import time
+import uuid
 from contextlib import asynccontextmanager
 from typing import Literal
 
@@ -10,6 +12,8 @@ from sqlalchemy.orm import Session
 
 import config
 import jobs
+import logging_setup
+import pitch
 import stripe_service
 from auth import verify_clerk_token
 from db import engine, get_db, tenant_session
@@ -27,12 +31,36 @@ DEFAULT_SETTINGS = {
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
+    logging_setup.configure_logging()
     config.validate_startup()
-    jobs.mark_stale_jobs_failed()
+    jobs.recover_jobs(config.dev_tenant_id())
     yield
 
 
 app = FastAPI(title="Insight Scraper API", lifespan=lifespan)
+
+
+@app.middleware("http")
+async def request_logging_middleware(request: Request, call_next):
+    req_id = uuid.uuid4().hex[:8]
+    token = logging_setup.set_request_id(req_id)
+    start_time = time.perf_counter()
+    status_code = 500
+    try:
+        response = await call_next(request)
+        status_code = response.status_code
+        return response
+    finally:
+        duration_ms = int((time.perf_counter() - start_time) * 1000)
+        logging_setup.log_event(
+            "request.finished",
+            method=request.method,
+            path=request.url.path,
+            status_code=status_code,
+            duration_ms=duration_ms,
+        )
+        logging_setup.reset_request_id(token)
+
 
 app.add_middleware(
     CORSMiddleware,
@@ -47,6 +75,20 @@ class SettingsPayload(BaseModel):
     default_region: Region
     default_source: Source
     default_limit: int = Field(ge=1, le=config.MAX_LEAD_LIMIT)
+    sender_name: str | None = None
+    sender_email: str | None = None
+    sender_phone: str | None = None
+
+
+class BatchItem(BaseModel):
+    query: str = Field(min_length=config.MIN_QUERY_LENGTH, max_length=config.MAX_QUERY_LENGTH)
+    region: Region = "US"
+    source: Source = "gmaps"
+    limit: int = Field(default=25, ge=1, le=config.MAX_LEAD_LIMIT)
+
+
+class BatchPayload(BaseModel):
+    items: list[BatchItem] = Field(min_length=1, max_length=25)
 
 
 def _require_entitlement(db: Session, tenant_id: str) -> None:
@@ -68,7 +110,8 @@ def _require_entitlement(db: Session, tenant_id: str) -> None:
         )
 
 
-def _serialize_lead(lead: Lead) -> dict:
+def _serialize_lead(lead: Lead, settings: dict | None = None) -> dict:
+    email_data = pitch.build_email(lead, settings)
     return {
         "id": lead.id,
         "job_id": lead.job_id,
@@ -83,6 +126,9 @@ def _serialize_lead(lead: Lead) -> dict:
         "has_chatbot_widget": bool(getattr(lead, "has_chatbot_widget", False)),
         "mobile_load_ms": getattr(lead, "mobile_load_ms", 0) or 0,
         "pitch_hook": getattr(lead, "pitch_hook", "") or "",
+        "pitch_rank": getattr(lead, "pitch_rank", None),
+        "email_subject": email_data["subject"],
+        "email_body": email_data["body"],
         "created_at": lead.created_at.isoformat() if lead.created_at else None,
     }
 
@@ -90,11 +136,18 @@ def _serialize_lead(lead: Lead) -> dict:
 def _settings_dict(settings: WorkspaceSettings | None) -> dict:
     if settings is None:
         return dict(DEFAULT_SETTINGS)
-    return {
+    data = {
         "default_region": settings.default_region,
         "default_source": settings.default_source,
         "default_limit": settings.default_limit,
     }
+    if getattr(settings, "sender_name", None) is not None:
+        data["sender_name"] = settings.sender_name
+    if getattr(settings, "sender_email", None) is not None:
+        data["sender_email"] = settings.sender_email
+    if getattr(settings, "sender_phone", None) is not None:
+        data["sender_phone"] = settings.sender_phone
+    return data
 
 
 @app.post("/api/scrape", status_code=202)
@@ -114,19 +167,36 @@ async def start_scrape(
     _require_entitlement(db, tenant_id)
 
     job = jobs.create_job(tenant_id, query, region, source, limit)
-    jobs.start_job(job.id)
+    jobs.start_job(job.id, tenant_id)
 
     return {"job": jobs.serialize_job(job)}
+
+
+@app.post("/api/batches", status_code=202)
+async def create_scrape_batch(
+    payload: BatchPayload,
+    tenant_id: str = Depends(verify_clerk_token),
+    db: Session = Depends(get_db),
+):
+    _require_entitlement(db, tenant_id)
+    items_data = [item.model_dump() for item in payload.items]
+    batch_id, batch_jobs = jobs.create_batch(tenant_id, items_data)
+    return {
+        "batch_id": batch_id,
+        "jobs": [jobs.serialize_job(job) for job in batch_jobs],
+    }
 
 
 @app.get("/api/jobs")
 async def list_scrape_jobs(
     limit: int = Query(default=20, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
+    batch_id: str | None = Query(default=None),
     tenant_id: str = Depends(verify_clerk_token),
 ):
     """Return the tenant's run history, newest first."""
-    rows, total = jobs.list_jobs(tenant_id, limit, offset)
+    jobs.recover_jobs(tenant_id)
+    rows, total = jobs.list_jobs(tenant_id, limit, offset, batch_id=batch_id)
     return {
         "jobs": [jobs.serialize_job(job) for job in rows],
         "total": total,
@@ -155,10 +225,14 @@ async def get_scrape_job_leads(
     if job is None:
         raise HTTPException(status_code=404, detail="Job not found")
 
+    with tenant_session(tenant_id) as db:
+        settings = db.get(WorkspaceSettings, tenant_id)
+        settings_dict = _settings_dict(settings)
+
     leads = jobs.leads_for_job(tenant_id, job_id) or []
     return {
         "job": jobs.serialize_job(job),
-        "leads": [_serialize_lead(lead) for lead in leads],
+        "leads": [_serialize_lead(lead, settings_dict) for lead in leads],
     }
 
 
@@ -192,7 +266,7 @@ async def rerun_scrape_job(
         existing.source,
         existing.limit,
     )
-    jobs.start_job(job.id)
+    jobs.start_job(job.id, tenant_id)
     return {"job": jobs.serialize_job(job)}
 
 
@@ -204,6 +278,11 @@ async def delete_scrape_job(
     if not jobs.delete_job(tenant_id, job_id):
         raise HTTPException(status_code=404, detail="Job not found")
     return Response(status_code=204)
+
+
+@app.get("/api/sources")
+async def list_sources(tenant_id: str = Depends(verify_clerk_token)):
+    return {"sources": config.SOURCE_INFO}
 
 
 @app.get("/api/settings")
@@ -227,6 +306,12 @@ async def update_settings(
         settings.default_region = payload.default_region
         settings.default_source = payload.default_source
         settings.default_limit = payload.default_limit
+        if "sender_name" in payload.model_fields_set:
+            settings.sender_name = payload.sender_name
+        if "sender_email" in payload.model_fields_set:
+            settings.sender_email = payload.sender_email
+        if "sender_phone" in payload.model_fields_set:
+            settings.sender_phone = payload.sender_phone
 
         db.flush()
         return _settings_dict(settings)
@@ -242,6 +327,8 @@ async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
 async def get_leads(tenant_id: str = Depends(verify_clerk_token)):
     """Return the most recent leads for the authenticated tenant."""
     with tenant_session(tenant_id) as db:
+        settings = db.get(WorkspaceSettings, tenant_id)
+        settings_dict = _settings_dict(settings)
         leads = (
             db.query(Lead)
             .filter(Lead.tenant_id == tenant_id)
@@ -249,7 +336,7 @@ async def get_leads(tenant_id: str = Depends(verify_clerk_token)):
             .limit(200)
             .all()
         )
-        return [_serialize_lead(lead) for lead in leads]
+        return [_serialize_lead(lead, settings_dict) for lead in leads]
 
 
 @app.get("/health")

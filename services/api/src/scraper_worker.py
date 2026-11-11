@@ -26,6 +26,8 @@ import urllib.parse
 from bs4 import BeautifulSoup
 from playwright.async_api import async_playwright
 
+import parsers
+
 # User-Agent rotation pool
 USER_AGENTS = [
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
@@ -243,14 +245,9 @@ def _calculate_pagespeed_score(load_time_seconds: float) -> int:
     else:
         return max(15, int(45 - min(30, (load_time_seconds - 5.5) * 5)))
 
-def _get_pitch_hook(mobile_load_ms: int, has_chatbot: bool) -> str:
-    """Generates the sales pitch hook based on mobile speed and chatbot signals."""
-    if mobile_load_ms > 3000:
-        return "Pitch $750 Speed Overhaul (#2)"
-    elif not has_chatbot:
-        return "Pitch $1,000 RAG Bot (#4)"
-    else:
-        return "Pitch Enterprise AI Automation"
+def _get_pitch_hook(website: str | None, mobile_load_ms: int, has_chatbot: bool) -> tuple[int, str]:
+    """Generates the sales pitch rank and hook based on ordered signal precedence."""
+    return parsers.pitch_rank_for(website, mobile_load_ms, has_chatbot)
 
 async def _audit_website_signal(browser, target_url: str) -> dict:
     """
@@ -401,7 +398,6 @@ async def _audit_website_signal(browser, target_url: str) -> dict:
 
 async def _scrape_kenya_directory(page, search_query: str, limit: int) -> list[dict]:
     """Scrapes yellowpageskenya.com for the KE region."""
-    leads = []
     encoded_query = urllib.parse.quote(search_query)
     target_url = f"https://yellowpageskenya.com/search-results/{encoded_query}"
 
@@ -409,49 +405,16 @@ async def _scrape_kenya_directory(page, search_query: str, limit: int) -> list[d
         await page.goto(target_url, timeout=30000)
         await asyncio.sleep(random.uniform(2.0, 3.5))
         html = await page.content()
-        soup = BeautifulSoup(html, 'html.parser')
-
-        cards = []
-        for h2 in soup.find_all('h2'):
-            card = h2.find_parent('div', class_='bg-white')
-            if card and card not in cards and card.select_one('a[href^="tel:"]'):
-                cards.append(card)
-
-        for business in cards[:limit]:
-            name_el = business.select_one('h2')
-            name = name_el.text.strip() if name_el else "Unknown Business"
-
-            phone_el = business.select_one('a[href^="tel:"]')
-            phone = phone_el['href'].replace('tel:', '').strip() if (phone_el and phone_el.has_attr('href')) else "Hidden"
-
-            website = ""
-            for a_tag in business.select('a[href]'):
-                href = a_tag['href']
-                if href.startswith('http') and 'yellowpageskenya' not in href:
-                    website = href
-                    break
-
-            card_text = business.get_text(separator=" ")
-            email, socials = _extract_emails_and_socials(business, card_text)
-
-            leads.append({
-                "Business Name": name,
-                "Phone": phone,
-                "Website": website,
-                "Email": email,
-                "Socials": socials,
-                "Region": "KE"
-            })
+        return parsers.parse_kenya(html, limit=limit)
     except Exception as e:
         print(f"Kenya directory scraping error: {e}", file=sys.stderr)
+        return []
 
-    return leads
 
 async def _scrape_google_maps(page, query: str, region: str, limit: int) -> list[dict]:
     """Scrapes Google Maps Places for international queries."""
-    leads = []
     meta = REGION_METADATA.get(region, REGION_METADATA["US"])
-    
+
     # Enrich query with country if not present
     search_term = query
     if meta["country"].lower() not in query.lower() and region != "US":
@@ -470,7 +433,7 @@ async def _scrape_google_maps(page, query: str, region: str, limit: int) -> list
             'button:has-text("I agree")',
             'button:has-text("Reject all")',
             'form[action*="consent"] button',
-            'button[aria-label*="Accept" i]'
+            'button[aria-label*="Accept" i]',
         ]:
             try:
                 btn = page.locator(consent_btn_selector).first
@@ -490,7 +453,7 @@ async def _scrape_google_maps(page, query: str, region: str, limit: int) -> list
 
         # Scroll to load up to limit items
         scroll_attempts = 0
-        while len(leads) < limit and scroll_attempts < 6:
+        while scroll_attempts < 6:
             scroll_attempts += 1
             await page.evaluate("""() => {
                 const feed = document.querySelector('div[role="feed"]') || window;
@@ -499,47 +462,14 @@ async def _scrape_google_maps(page, query: str, region: str, limit: int) -> list
             await asyncio.sleep(1.2)
 
         html = await page.content()
-        soup = BeautifulSoup(html, 'html.parser')
-
-        # Google Maps listings container
-        cards = soup.select('div[role="feed"] > div > div[role="article"]')
-        if not cards:
-            cards = soup.select('div[role="article"]')
-
-        for card in cards:
-            if len(leads) >= limit:
-                break
-
-            name_el = card.select_one('div.fontHeadlineSmall') or card.select_one('div[class*="qBF1Pd"]')
-            name = name_el.text.strip() if name_el else (card.get('aria-label') or "Unknown Business")
-            if not name or name == "Unknown Business":
-                continue
-
-            website = ""
-            website_el = card.select_one('a[data-value="Website"]') or card.select_one('a[aria-label*="website" i]') or card.select_one('a[data-item-id="authority"]')
-            if website_el and website_el.get('href'):
-                website = website_el['href']
-
-            # Extract phone from card text or data attributes
-            card_text = card.get_text(separator=" ")
-            phone = _extract_phone_from_soup(card, card_text)
-
-            leads.append({
-                "Business Name": name,
-                "Phone": phone,
-                "Website": website,
-                "Email": "",
-                "Socials": [],
-                "Region": region
-            })
+        return parsers.parse_gmaps(html, region=region, limit=limit)
     except Exception as e:
         print(f"Google Maps scraping error: {e}", file=sys.stderr)
+        return []
 
-    return leads
 
 async def _scrape_duckduckgo_places(page, query: str, region: str, limit: int) -> list[dict]:
     """Scrapes DuckDuckGo Local / Places for business contacts and websites."""
-    leads = []
     meta = REGION_METADATA.get(region, REGION_METADATA["US"])
     search_term = f"{query} {meta['country']}" if meta['country'].lower() not in query.lower() else query
     encoded_query = urllib.parse.quote(search_term)
@@ -549,59 +479,17 @@ async def _scrape_duckduckgo_places(page, query: str, region: str, limit: int) -
         await page.goto(url, timeout=25000, wait_until="domcontentloaded")
         await asyncio.sleep(random.uniform(2.0, 3.5))
         html = await page.content()
-        soup = BeautifulSoup(html, 'html.parser')
-
-        # DuckDuckGo local / places modules
-        place_items = soup.select('.module--places .place-list__item, [data-testid="place-item"], .result--places')
-        for item in place_items[:limit]:
-            name_el = item.select_one('.place-list__item__title, [data-testid="place-title"], h2')
-            name = name_el.text.strip() if name_el else "Unknown Business"
-
-            website = ""
-            web_el = item.select_one('a[href^="http"]:not([href*="duckduckgo"])')
-            if web_el and web_el.get('href'):
-                website = web_el['href']
-
-            item_text = item.get_text(separator=" ")
-            phone = _extract_phone_from_soup(item, item_text)
-
-            leads.append({
-                "Business Name": name,
-                "Phone": phone,
-                "Website": website,
-                "Email": "",
-                "Socials": [],
-                "Region": region
-            })
-
-        # Fallback to standard web results if places module returned empty
-        if not leads:
-            web_results = soup.select('article.result, .result__body')
-            for res in web_results[:limit]:
-                title_el = res.select_one('h2, .result__title')
-                name = title_el.text.strip() if title_el else "Business"
-                link_el = res.select_one('a[href^="http"]')
-                website = link_el['href'] if link_el else ""
-                if website and 'duckduckgo.com' not in website:
-                    leads.append({
-                        "Business Name": _clean_business_name(name, domain=website),
-                        "Phone": "Hidden",
-                        "Website": website,
-                        "Email": "",
-                        "Socials": [],
-                        "Region": region
-                    })
+        return parsers.parse_duckduckgo(html, region=region, limit=limit)
     except Exception as e:
         print(f"DuckDuckGo Places error: {e}", file=sys.stderr)
+        return []
 
-    return leads
 
 async def _scrape_yellowpages_intl(page, query: str, region: str, limit: int) -> list[dict]:
     """Scrapes country-specific business directories (YellowPages US, Yell UK, etc.)."""
     if region == "KE":
         return await _scrape_kenya_directory(page, query, limit)
 
-    leads = []
     encoded_query = urllib.parse.quote(query)
 
     try:
@@ -609,38 +497,24 @@ async def _scrape_yellowpages_intl(page, query: str, region: str, limit: int) ->
             url = f"https://www.yellowpages.com/search?search_terms={encoded_query}"
             await page.goto(url, timeout=25000, wait_until="domcontentloaded")
             await asyncio.sleep(2.0)
-            soup = BeautifulSoup(await page.content(), 'html.parser')
-            for card in soup.select('.result, .srp-listing')[:limit]:
-                name_el = card.select_one('a.business-name')
-                name = name_el.text.strip() if name_el else "Unknown"
-                phone_el = card.select_one('.phones.phone.primary, [itemprop="telephone"]')
-                phone = phone_el.text.strip() if phone_el else "Hidden"
-                web_el = card.select_one('a.track-visit-website, a[href^="http"]:not([href*="yellowpages.com"])')
-                website = web_el['href'] if web_el else ""
-                leads.append({"Business Name": name, "Phone": phone, "Website": website, "Email": "", "Socials": [], "Region": region})
+            html = await page.content()
+            return parsers.parse_yellowpages(html, region=region, limit=limit)
 
         elif region == "GB":
             url = f"https://www.yell.com/ucs/UcsSearchAction.do?keywords={encoded_query}"
             await page.goto(url, timeout=25000, wait_until="domcontentloaded")
             await asyncio.sleep(2.0)
-            soup = BeautifulSoup(await page.content(), 'html.parser')
-            for card in soup.select('.businessCapsule, div[itemtype*="LocalBusiness"]')[:limit]:
-                name_el = card.select_one('.businessCapsule--title, h2')
-                name = name_el.text.strip() if name_el else "Unknown"
-                phone_el = card.select_one('a[href^="tel:"], .business--telephone')
-                phone = phone_el.text.strip() if phone_el else "Hidden"
-                web_el = card.select_one('a[data-tracking*="website"], a[href^="http"]:not([href*="yell.com"])')
-                website = web_el['href'] if web_el else ""
-                leads.append({"Business Name": name, "Phone": phone, "Website": website, "Email": "", "Socials": [], "Region": region})
+            html = await page.content()
+            return parsers.parse_yellowpages(html, region=region, limit=limit)
 
         elif region in ["CA", "AU", "AE"]:
             # DuckDuckGo Places as verified fallback for CA, AU, AE international directories
-            leads = await _scrape_duckduckgo_places(page, query, region, limit)
+            return await _scrape_duckduckgo_places(page, query, region, limit)
 
     except Exception as e:
         print(f"International YellowPages error for {region}: {e}", file=sys.stderr)
 
-    return leads
+    return []
 
 async def run_scraper(query: str, region: str = "US", source: str = "gmaps", limit: int = 25) -> list[dict]:
     """
@@ -739,7 +613,7 @@ async def run_scraper(query: str, region: str = "US", source: str = "gmaps", lim
             gc.collect()
 
             # Pitch Hook calculation
-            pitch_hook = _get_pitch_hook(mobile_load_ms, has_chatbot)
+            pitch_rank, pitch_hook = _get_pitch_hook(website, mobile_load_ms, has_chatbot)
             pagespeed_score = _calculate_pagespeed_score(mobile_load_ms / 1000.0) if mobile_load_ms > 0 else 0
 
             final_leads.append({
@@ -756,7 +630,9 @@ async def run_scraper(query: str, region: str = "US", source: str = "gmaps", lim
                 "Mobile Load Time": f"{mobile_load_ms / 1000.0:.2f}s" if mobile_load_ms > 0 else "N/A",
                 "PageSpeed Score": f"{pagespeed_score}/100" if mobile_load_ms > 0 else "N/A",
                 "Pitch": pitch_hook,
-                "Pitch_Hook": pitch_hook
+                "Pitch_Hook": pitch_hook,
+                "Pitch_Rank": pitch_rank,
+                "pitch_rank": pitch_rank,
             })
 
         await page.close()
@@ -788,7 +664,7 @@ async def _audit_urls_cli(urls_input: str, limit: int = 15) -> list[dict]:
             audit = await _audit_website_signal(browser, target_url)
             load_ms = audit.get("mobile_load_ms", 0)
             has_chat = audit.get("has_chatbot", False)
-            pitch = _get_pitch_hook(load_ms, has_chat)
+            pitch_rank, pitch = _get_pitch_hook(target_url, load_ms, has_chat)
             score = _calculate_pagespeed_score(load_ms / 1000.0) if load_ms > 0 else 0
 
             email_socials_parts = []
@@ -813,6 +689,8 @@ async def _audit_urls_cli(urls_input: str, limit: int = 15) -> list[dict]:
                 "PageSpeed Score": f"{score}/100" if load_ms > 0 else "N/A",
                 "Pitch": pitch,
                 "Pitch_Hook": pitch,
+                "Pitch_Rank": pitch_rank,
+                "pitch_rank": pitch_rank,
             })
 
         await browser.close()

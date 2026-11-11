@@ -33,6 +33,20 @@ LEAD_COLUMNS = (
     "pitch_hook VARCHAR",
     "region VARCHAR DEFAULT 'US'",
     "job_id VARCHAR(36)",
+    "pitch_rank INTEGER",
+)
+
+JOB_COLUMNS = (
+    "attempt INTEGER NOT NULL DEFAULT 0",
+    "lease_expires_at TIMESTAMP",
+    "worker_id VARCHAR",
+    "batch_id VARCHAR(36)",
+)
+
+SETTINGS_COLUMNS = (
+    "sender_name VARCHAR",
+    "sender_email VARCHAR",
+    "sender_phone VARCHAR",
 )
 
 
@@ -56,6 +70,22 @@ def init_db(max_retries: int = 10, retry_delay: int = 2) -> None:
         # SQLite has no Row-Level Security. Local runs rely on explicit `tenant_id`
         # filters instead, so skip the policy block rather than failing every
         # statement in an aborted transaction.
+        with engine.begin() as connection:
+            for column in LEAD_COLUMNS:
+                try:
+                    connection.execute(text(f"ALTER TABLE leads ADD COLUMN {column};"))
+                except Exception:
+                    pass
+            for column in JOB_COLUMNS:
+                try:
+                    connection.execute(text(f"ALTER TABLE scrape_jobs ADD COLUMN {column};"))
+                except Exception:
+                    pass
+            for column in SETTINGS_COLUMNS:
+                try:
+                    connection.execute(text(f"ALTER TABLE workspace_settings ADD COLUMN {column};"))
+                except Exception:
+                    pass
         print("SQLite detected: skipping RLS policies (tenant filters still apply).")
         print("Database initialized successfully.")
         return
@@ -70,6 +100,22 @@ def init_db(max_retries: int = 10, retry_delay: int = 2) -> None:
             except Exception as exc:  # noqa: BLE001 - column may already exist
                 print(f"Note: could not ensure leads column '{column}': {exc}")
 
+        for column in JOB_COLUMNS:
+            try:
+                connection.execute(
+                    text(f"ALTER TABLE scrape_jobs ADD COLUMN IF NOT EXISTS {column};")
+                )
+            except Exception as exc:  # noqa: BLE001 - column may already exist
+                print(f"Note: could not ensure scrape_jobs column '{column}': {exc}")
+
+        for column in SETTINGS_COLUMNS:
+            try:
+                connection.execute(
+                    text(f"ALTER TABLE workspace_settings ADD COLUMN IF NOT EXISTS {column};")
+                )
+            except Exception as exc:  # noqa: BLE001 - column may already exist
+                print(f"Note: could not ensure workspace_settings column '{column}': {exc}")
+
         for table_name in TENANT_TABLES:
             try:
                 connection.execute(
@@ -80,15 +126,12 @@ def init_db(max_retries: int = 10, retry_delay: int = 2) -> None:
                         f"DROP POLICY IF EXISTS tenant_isolation_policy ON {table_name};"
                     )
                 )
-                # The `admin` value is reserved for internal job bookkeeping: the worker
-                # updates a job row before it has an authenticated request context.
                 connection.execute(
                     text(
                         f"""
                         CREATE POLICY tenant_isolation_policy ON {table_name}
                         USING (
                             tenant_id = current_setting('app.current_tenant', true)
-                            OR current_setting('app.current_tenant', true) = 'admin'
                         );
                         """
                     )

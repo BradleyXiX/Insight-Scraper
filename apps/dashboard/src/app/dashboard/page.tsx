@@ -5,18 +5,20 @@ import { Search, Download, AlertCircle, Play, ChevronDown, FileJson } from "luci
 import { useAppAuth } from "@/lib/app-auth";
 import {
   DEFAULT_SETTINGS,
+  DEFAULT_SOURCE_INFO,
   getJob,
   getJobLeads,
   getSettings,
+  getSources,
   isActiveJob,
   jobStartedAt,
   listJobs,
   REGION_OPTIONS,
-  SOURCE_OPTIONS,
   startScrape,
   cancelJob,
   type JobPage,
   type ScrapeJob,
+  type SourceMap,
   type WorkspaceSettings,
 } from "@/lib/jobs";
 import { NETWORK_FAILURE, readFailure } from "@/lib/errors";
@@ -25,6 +27,7 @@ import { downloadFile, exportBaseName } from "@/lib/download";
 import { KpiStrip } from "@/components/KpiStrip";
 import { ScrapeStatus, type ScrapeState } from "@/components/ScrapeStatus";
 import { LeadResults } from "@/components/LeadResults";
+import { BatchPanel } from "@/components/BatchPanel";
 
 const LIMIT_OPTIONS = [10, 25, 50];
 
@@ -88,6 +91,7 @@ export default function DashboardPage() {
   const [region, setRegion] = useState(DEFAULT_SETTINGS.default_region);
   const [source, setSource] = useState(DEFAULT_SETTINGS.default_source);
   const [limit, setLimit] = useState(DEFAULT_SETTINGS.default_limit);
+  const [sourceMap, setSourceMap] = useState<SourceMap>(DEFAULT_SOURCE_INFO);
 
   const [job, setJob] = useState<ScrapeJob | null>(null);
   const [activeJobId, setActiveJobId] = useState<string | null>(null);
@@ -95,6 +99,7 @@ export default function DashboardPage() {
   const [leads, setLeads] = useState<LeadItem[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [activeTab, setActiveTab] = useState<"single" | "batch">("single");
 
   const loadLeads = useCallback(
     async (jobId: string) => {
@@ -123,6 +128,18 @@ export default function DashboardPage() {
         setRegion(settings.default_region);
         setSource(settings.default_source);
         setLimit(settings.default_limit);
+      }
+
+      try {
+        const sourcesResponse = await getSources(getToken);
+        if (sourcesResponse.ok) {
+          const sourcesPayload: { sources?: SourceMap } = await sourcesResponse.json();
+          if (sourcesPayload.sources) {
+            setSourceMap(sourcesPayload.sources);
+          }
+        }
+      } catch {
+        // Fall back to built-in source metadata
       }
 
       const jobsResponse = await listJobs(getToken, { limit: 1, offset: 0 });
@@ -219,6 +236,14 @@ export default function DashboardPage() {
   }, [activeJobId, getToken, loadLeads]);
 
   const isRunning = scrapeState.phase === "running" || Boolean(activeJobId);
+
+  const sourceOptions = Object.entries(sourceMap).map(([value, info]) => ({
+    value,
+    label: info.label,
+    degraded: info.degraded,
+    note: info.note,
+  }));
+  const activeSourceInfo = sourceMap[source];
 
   const handleScrape = async (event?: React.FormEvent) => {
     event?.preventDefault();
@@ -331,129 +356,178 @@ export default function DashboardPage() {
         </div>
       )}
 
-      <div className="panel p-6 space-y-4">
-        <form onSubmit={handleScrape} className="flex flex-col md:flex-row gap-3">
-          <div className="relative w-full md:w-36">
-            <select
-              value={region}
-              onChange={(event) => setRegion(event.target.value)}
-              className="w-full bg-surface border border-border rounded-none py-3 pl-4 pr-10 text-white focus:outline-none focus:border-accent font-mono text-sm cursor-pointer appearance-none"
-              aria-label="Target region"
-            >
-              {REGION_OPTIONS.map((option) => (
-                <option key={option.value} value={option.value} className="bg-surface text-white">
-                  {option.label}
-                </option>
-              ))}
-            </select>
-            <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-3 text-foreground/50">
-              <ChevronDown className="w-4 h-4" />
+      <div className="flex items-center gap-2 border-b border-border">
+        <button
+          type="button"
+          onClick={() => setActiveTab("single")}
+          className={`px-4 py-2 font-mono text-xs uppercase tracking-wider transition-colors cursor-pointer ${
+            activeTab === "single"
+              ? "border-b-2 border-accent text-white font-semibold"
+              : "text-foreground/60 hover:text-white"
+          }`}
+        >
+          Single search
+        </button>
+        <button
+          type="button"
+          onClick={() => setActiveTab("batch")}
+          className={`px-4 py-2 font-mono text-xs uppercase tracking-wider transition-colors cursor-pointer ${
+            activeTab === "batch"
+              ? "border-b-2 border-accent text-white font-semibold"
+              : "text-foreground/60 hover:text-white"
+          }`}
+        >
+          Batch
+        </button>
+      </div>
+
+      {activeTab === "single" ? (
+        <div className="panel p-6 space-y-4">
+          <form onSubmit={handleScrape} className="flex flex-col md:flex-row gap-3">
+            <div className="relative w-full md:w-36">
+              <select
+                value={region}
+                onChange={(event) => setRegion(event.target.value)}
+                className="w-full bg-surface border border-border rounded-none py-3 pl-4 pr-10 text-white focus:outline-none focus:border-accent font-mono text-sm cursor-pointer appearance-none"
+                aria-label="Target region"
+              >
+                {REGION_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value} className="bg-surface text-white">
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+              <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-3 text-foreground/50">
+                <ChevronDown className="w-4 h-4" />
+              </div>
             </div>
-          </div>
 
-          <div className="relative w-full md:w-52">
-            <select
-              value={source}
-              onChange={(event) => setSource(event.target.value)}
-              className="w-full bg-surface border border-border rounded-none py-3 pl-4 pr-10 text-white focus:outline-none focus:border-accent font-mono text-sm cursor-pointer appearance-none"
-              aria-label="Scraping source"
-            >
-              {SOURCE_OPTIONS.map((option) => (
-                <option key={option.value} value={option.value} className="bg-surface text-white">
-                  {option.label}
-                </option>
-              ))}
-            </select>
-            <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-3 text-foreground/50">
-              <ChevronDown className="w-4 h-4" />
+            <div className="flex flex-col w-full md:w-52">
+              <div className="relative w-full">
+                <select
+                  value={source}
+                  onChange={(event) => setSource(event.target.value)}
+                  className="w-full bg-surface border border-border rounded-none py-3 pl-4 pr-10 text-white focus:outline-none focus:border-accent font-mono text-sm cursor-pointer appearance-none"
+                  aria-label="Scraping source"
+                >
+                  {sourceOptions.map((option) => (
+                    <option key={option.value} value={option.value} className="bg-surface text-white">
+                      {option.label}{option.degraded ? " (Degraded)" : ""}
+                    </option>
+                  ))}
+                </select>
+                <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-3 text-foreground/50">
+                  <ChevronDown className="w-4 h-4" />
+                </div>
+              </div>
+              {activeSourceInfo?.degraded && activeSourceInfo.note && (
+                <p className="text-xs font-mono text-attention mt-1">
+                  {activeSourceInfo.note}
+                </p>
+              )}
             </div>
-          </div>
 
-          <div className="relative w-full md:w-32">
-            <select
-              value={limit}
-              onChange={(event) => setLimit(Number(event.target.value))}
-              className="w-full bg-surface border border-border rounded-none py-3 pl-4 pr-10 text-white focus:outline-none focus:border-accent font-mono text-sm cursor-pointer appearance-none"
-              aria-label="Lead limit"
-            >
-              {LIMIT_OPTIONS.map((value) => (
-                <option key={value} value={value} className="bg-surface text-white">
-                  {value} leads
-                </option>
-              ))}
-            </select>
-            <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-3 text-foreground/50">
-              <ChevronDown className="w-4 h-4" />
+            <div className="relative w-full md:w-32">
+              <select
+                value={limit}
+                onChange={(event) => setLimit(Number(event.target.value))}
+                className="w-full bg-surface border border-border rounded-none py-3 pl-4 pr-10 text-white focus:outline-none focus:border-accent font-mono text-sm cursor-pointer appearance-none"
+                aria-label="Lead limit"
+              >
+                {LIMIT_OPTIONS.map((value) => (
+                  <option key={value} value={value} className="bg-surface text-white">
+                    {value} leads
+                  </option>
+                ))}
+              </select>
+              <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-3 text-foreground/50">
+                <ChevronDown className="w-4 h-4" />
+              </div>
             </div>
-          </div>
 
-          <div className="relative flex-1">
-            <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-foreground/50" />
-            <input
-              type="text"
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder="e.g. medspas in Austin TX, dentists in London"
-              maxLength={200}
-              className="w-full bg-surface border border-border rounded-none py-3 pl-12 pr-4 text-white placeholder:text-foreground/60 focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent transition-colors font-mono"
-            />
-          </div>
+            <div className="relative flex-1">
+              <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-foreground/50" />
+              <input
+                type="text"
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder="e.g. medspas in Austin TX, dentists in London"
+                maxLength={200}
+                className="w-full bg-surface border border-border rounded-none py-3 pl-12 pr-4 text-white placeholder:text-foreground/60 focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent transition-colors font-mono"
+              />
+            </div>
 
-          <button
-            type="submit"
-            disabled={isRunning || busy || !query.trim()}
-            className="flex items-center justify-center gap-2 bg-white text-black border border-transparent px-7 py-3 rounded-none font-semibold enabled:hover:bg-zinc-200 disabled:bg-surface-hover disabled:text-foreground/60 disabled:border-border disabled:cursor-not-allowed transition-colors text-sm whitespace-nowrap w-full md:w-48"
-          >
-            {isRunning ? (
-              <span className="flex items-center gap-2">
-                <span className="w-2 h-2 bg-accent motion-safe:animate-pulse inline-block" />
-                Extracting...
-              </span>
-            ) : (
-              <span className="flex items-center gap-2">
-                <Play className="w-4 h-4" />
-                Start extraction
-              </span>
-            )}
-          </button>
-        </form>
-
-        <ScrapeStatus
-          state={scrapeState}
-          onCancel={handleCancel}
-          onRetry={() => void handleScrape()}
-        />
-
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <div className="flex items-center gap-2 text-sm text-foreground/60">
-            <AlertCircle className="w-4 h-4 text-accent shrink-0" />
-            <p>
-              Six regions, three sources, 1–50 leads per run. Re-running a query does not
-              duplicate leads you already have.
-            </p>
-          </div>
-          <div className="flex items-center gap-2">
             <button
-              type="button"
-              onClick={handleExportCsv}
-              disabled={leads.length === 0}
-              className="flex items-center justify-center gap-2 bg-surface border border-border text-foreground enabled:hover:text-white enabled:hover:border-foreground/40 px-4 py-2 rounded-none font-medium disabled:text-foreground/60 disabled:cursor-not-allowed transition-colors uppercase tracking-wider text-xs whitespace-nowrap"
+              type="submit"
+              disabled={isRunning || busy || !query.trim()}
+              className="flex items-center justify-center gap-2 bg-white text-black border border-transparent px-7 py-3 rounded-none font-semibold enabled:hover:bg-zinc-200 disabled:bg-surface-hover disabled:text-foreground/60 disabled:border-border disabled:cursor-not-allowed transition-colors text-sm whitespace-nowrap w-full md:w-48"
             >
-              <Download className="w-4 h-4" />
-              CSV
+              {isRunning ? (
+                <span className="flex items-center gap-2">
+                  <span className="w-2 h-2 bg-accent motion-safe:animate-pulse inline-block" />
+                  Extracting...
+                </span>
+              ) : (
+                <span className="flex items-center gap-2">
+                  <Play className="w-4 h-4" />
+                  Start extraction
+                </span>
+              )}
             </button>
-            <button
-              type="button"
-              onClick={handleExportJson}
-              disabled={leads.length === 0}
-              className="flex items-center justify-center gap-2 bg-surface border border-border text-foreground enabled:hover:text-white enabled:hover:border-foreground/40 px-4 py-2 rounded-none font-medium disabled:text-foreground/60 disabled:cursor-not-allowed transition-colors uppercase tracking-wider text-xs whitespace-nowrap"
-            >
-              <FileJson className="w-4 h-4" />
-              JSON
-            </button>
+          </form>
+
+          <ScrapeStatus
+            state={scrapeState}
+            onCancel={handleCancel}
+            onRetry={() => void handleScrape()}
+          />
+
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="flex items-center gap-2 text-sm text-foreground/60">
+              <AlertCircle className="w-4 h-4 text-accent shrink-0" />
+              <p>
+                Six regions, three sources, 1–50 leads per run. Re-running a query does not
+                duplicate leads you already have.
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={handleExportCsv}
+                disabled={leads.length === 0}
+                className="flex items-center justify-center gap-2 bg-surface border border-border text-foreground enabled:hover:text-white enabled:hover:border-foreground/40 px-4 py-2 rounded-none font-medium disabled:text-foreground/60 disabled:cursor-not-allowed transition-colors uppercase tracking-wider text-xs whitespace-nowrap"
+              >
+                <Download className="w-4 h-4" />
+                CSV
+              </button>
+              <button
+                type="button"
+                onClick={handleExportJson}
+                disabled={leads.length === 0}
+                className="flex items-center justify-center gap-2 bg-surface border border-border text-foreground enabled:hover:text-white enabled:hover:border-foreground/40 px-4 py-2 rounded-none font-medium disabled:text-foreground/60 disabled:cursor-not-allowed transition-colors uppercase tracking-wider text-xs whitespace-nowrap"
+              >
+                <FileJson className="w-4 h-4" />
+                JSON
+              </button>
+            </div>
           </div>
         </div>
-      </div>
+      ) : (
+        <BatchPanel
+          selectedJobId={job?.id}
+          onSelectJob={(selectedJob) => {
+            setJob(selectedJob);
+            setQuery(selectedJob.query);
+            setRegion(selectedJob.region);
+            setSource(selectedJob.source);
+            setLimit(selectedJob.limit);
+            setScrapeState(stateForJob(selectedJob));
+            if (selectedJob.status === "succeeded" || selectedJob.status === "empty") {
+              void loadLeads(selectedJob.id);
+            }
+          }}
+        />
+      )}
 
       <KpiStrip leads={leads} />
 
