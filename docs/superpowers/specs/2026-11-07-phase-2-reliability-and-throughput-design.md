@@ -255,9 +255,8 @@ row count is checked either way.
   (`attempt < 3`, status back to `queued`, lease cleared) or marks them `failed` with
   "Gave up after 3 attempts". It also releases any `queued` row whose
   `cancel_requested` is true.
-- **When recovery runs:** at startup for the configured local tenant, and on every
-  authenticated `GET /api/jobs` for the requesting tenant. That is enough because a
-  tenant only ever resumes its own work, and the local operator is the only tenant.
+- **When recovery runs:** on every authenticated `GET /api/jobs` for the requesting
+  tenant. That is enough because a tenant only ever resumes its own work.
 - **`mark_stale_jobs_failed` is deleted.** Its behaviour — losing queued work on
   restart — is exactly the problem this phase exists to fix.
 - **Concurrency:** an `asyncio.Semaphore(SCRAPE_CONCURRENCY)` (default `1` on the free
