@@ -328,7 +328,7 @@ Execution plan: `docs/superpowers/plans/2026-11-08-phase-2-reliability-and-throu
 
 1. **Required CI pipeline (§9.1):** GitHub Actions workflow `.github/workflows/ci.yml` running lint, format, type-check, backend unit tests, frontend build/test, and an isolated Postgres RLS test job with service container. A deliberately failing branch cannot merge.
 2. **Structured JSON logging (§9.2):** `logging_setup.py` with `JsonFormatter` and `TextFormatter`, correlation request IDs via `contextvars`, and structured events across HTTP requests, scraper worker execution, batch scheduling, and job state transitions.
-3. **Lease-based crash-resilient queue (§9.3):** Single guarded `claim_job` SQL update with lease expiry, heartbeat background task, and `recover_jobs` on API startup. Abandoned running jobs and queued items resume cleanly upon restart rather than sticking or failing.
+3. **Lease-based crash-resilient queue (§9.3):** Single guarded `claim_job` SQL update with lease expiry and a heartbeat background task. Abandoned leases are recovered by `recover_jobs(tenant_id)`, which runs when a tenant lists its jobs (`GET /api/jobs`). There is no global startup sweep: RLS provides no cross-tenant read path, and the `admin` bypass was deliberately removed in §9.4. A tenant's abandoned running jobs and queued items resume the moment that tenant opens the dashboard.
 4. **Zero-bypass Postgres Row-Level Security (§9.4):** Completely removed `admin_session` and the `app.is_admin = 'admin'` bypass. RLS policies strictly enforce `USING (tenant_id = current_setting('app.current_tenant', true))` with `FORCE ROW LEVEL SECURITY`. Verified with `test_rls.py`.
 5. **Full test suite (§9.5):** 98 backend tests passing on SQLite (3 Postgres RLS tests skipped without local Docker; executed in CI). Frontend passes `npm run lint:design`, `npm run lint`, `npx tsc --noEmit`, `npm test` (19/19 tests passing), and `npm run build` (Turbopack, all 11 routes).
 6. **Batch runs and UI panel (§9.6):** `POST /api/batches` accepts up to 25 items with atomic validation (rejecting all if one is invalid). Dashboard `BatchPanel` supports multi-region/multi-query input with live progress polling and terminal state summary.
@@ -345,6 +345,9 @@ Replaced the roadmap's original Phase 2, "Hosted, multi-tenant SaaS": Clerk orga
 
 1. **`create_all + ALTER` is not a migration system:** Schema evolution still relies on startup inspection and table alters. It cannot express column renames, type changes, or data backfills. It remains suitable for single-operator local use, but an Alembic migration system is mandatory before multi-environment deployment with persistent data.
 2. **25-item batch rate-limiting risk:** Upstream directories (Google Maps, YellowPages) will throttle or challenge client IPs if concurrency is cranked excessively or runs are queued without delays. Concurrency controls (`SCRAPE_CONCURRENCY=1`) and polite worker timeouts remain the primary safeguards rather than proxy rotation.
+- Job recovery is lazy and per tenant. A tenant that never calls `GET /api/jobs` leaves
+  its expired leases untouched until its next request; nothing reads those rows in the
+  meantime, so this is a delay in cleanup, not a correctness gap.
 
 ### What Phase 3 still owes
 

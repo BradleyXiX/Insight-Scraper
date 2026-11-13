@@ -33,7 +33,9 @@ DEFAULT_SETTINGS = {
 async def lifespan(_: FastAPI):
     logging_setup.configure_logging()
     config.validate_startup()
-    jobs.recover_jobs(config.dev_tenant_id())
+    # No global recovery sweep here. RLS scopes every read to one tenant, so a
+    # startup sweep could only ever touch a hardcoded tenant id. Abandoned leases
+    # are recovered per tenant by `recover_jobs(tenant_id)` in GET /api/jobs.
     yield
 
 
@@ -195,6 +197,9 @@ async def list_scrape_jobs(
     tenant_id: str = Depends(verify_clerk_token),
 ):
     """Return the tenant's run history, newest first."""
+    # The only recovery trigger. Idempotent and RLS-scoped, so it is safe on every
+    # list request: a tenant's abandoned jobs resume the moment they open the
+    # dashboard, and no other tenant's rows are visible to this session.
     jobs.recover_jobs(tenant_id)
     rows, total = jobs.list_jobs(tenant_id, limit, offset, batch_id=batch_id)
     return {

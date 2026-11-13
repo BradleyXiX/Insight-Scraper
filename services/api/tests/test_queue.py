@@ -1,11 +1,13 @@
 from datetime import timedelta
 import asyncio
 import pytest
+from fastapi.testclient import TestClient
 
 from db import tenant_session
 from models import ScrapeJob
 import jobs
 from jobs import claim_job, heartbeat, recover_jobs, create_job, get_job, utcnow
+import main
 
 TENANT = "test_tenant"
 
@@ -186,4 +188,84 @@ def test_a_waiting_job_stays_queued_until_a_slot_frees(monkeypatch):
 
     assert started == ["first", "second"]
     assert get_job(TENANT, second.id).status == "empty"
+
+
+OTHER_TENANT = "other_tenant"
+
+
+def test_recovery_is_scoped_to_the_calling_tenant():
+    mine = make_test_job()
+    theirs = create_job(
+        OTHER_TENANT, query="plumbers", region="GB", source="gmaps", limit=10
+    )
+    claim_job(TENANT, mine.id, worker_id="worker_a", lease_seconds=60)
+    claim_job(OTHER_TENANT, theirs.id, worker_id="worker_b", lease_seconds=60)
+
+    with tenant_session(TENANT) as db:
+        j = db.get(ScrapeJob, mine.id)
+        j.lease_expires_at = utcnow() - timedelta(seconds=10)
+        j.attempt = 1
+    with tenant_session(OTHER_TENANT) as db:
+        j = db.get(ScrapeJob, theirs.id)
+        j.lease_expires_at = utcnow() - timedelta(seconds=10)
+        j.attempt = 1
+
+    counts = recover_jobs(TENANT, max_attempts=3)
+    assert counts.get("requeued") == 1
+
+    recovered = get_job(TENANT, mine.id)
+    assert recovered is not None
+    assert recovered.status == "queued"
+
+    untouched = get_job(OTHER_TENANT, theirs.id)
+    assert untouched is not None
+    assert untouched.status == "running"
+    assert untouched.lease_expires_at is not None
+    assert untouched.worker_id == "worker_b"
+
+
+def test_listing_jobs_recovers_only_the_callers_tenant(client, local_mode):
+    mine = create_job(
+        "tenant_a", query="dentists", region="US", source="gmaps", limit=10
+    )
+    theirs = create_job(
+        "tenant_b", query="dentists", region="US", source="gmaps", limit=10
+    )
+    claim_job("tenant_a", mine.id, worker_id="worker_a", lease_seconds=60)
+    claim_job("tenant_b", theirs.id, worker_id="worker_b", lease_seconds=60)
+
+    with tenant_session("tenant_a") as db:
+        j = db.get(ScrapeJob, mine.id)
+        j.lease_expires_at = utcnow() - timedelta(seconds=10)
+        j.attempt = 1
+    with tenant_session("tenant_b") as db:
+        j = db.get(ScrapeJob, theirs.id)
+        j.lease_expires_at = utcnow() - timedelta(seconds=10)
+        j.attempt = 1
+
+    main.app.dependency_overrides[main.verify_clerk_token] = lambda: "tenant_a"
+    response = client.get("/api/jobs")
+    assert response.status_code == 200
+
+    recovered = get_job("tenant_a", mine.id)
+    assert recovered is not None
+    assert recovered.status == "queued"
+
+    untouched = get_job("tenant_b", theirs.id)
+    assert untouched is not None
+    assert untouched.status == "running"
+
+
+def test_startup_does_not_recover_a_hardcoded_tenant(monkeypatch):
+    calls: list[tuple] = []
+
+    def spy(*args, **kwargs):
+        calls.append((args, kwargs))
+        return {"requeued": 0, "failed": 0, "cancelled": 0}
+
+    monkeypatch.setattr(jobs, "recover_jobs", spy)
+    with TestClient(main.app):
+        pass
+
+    assert calls == []
 
