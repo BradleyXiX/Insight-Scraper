@@ -25,6 +25,10 @@ env/
 .coverage
 htmlcov/
 
+# Local operator database (created by the README quickstart)
+*.db
+*.db-journal
+
 # Editor/OS
 .vscode/
 .idea/
