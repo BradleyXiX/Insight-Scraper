@@ -6,53 +6,29 @@ import { usePathname } from "next/navigation";
 import { Search, History, CreditCard, Settings } from "lucide-react";
 import { useAppAuth } from "@/lib/app-auth";
 import { useReducedMotion } from "@/lib/use-reduced-motion";
+import { visibleDestinations, type NavIcon } from "@/lib/nav";
 
 export interface SidebarNavProps {
   onNavigate?: () => void;
   stagger?: boolean;
 }
 
-interface NavDestination {
-  href: string;
-  label: string;
-  icon: React.ComponentType<{ className?: string; strokeWidth?: number }>;
-  exact?: boolean;
-  hostedOnly?: boolean;
-}
-
-const DESTINATIONS: NavDestination[] = [
-  {
-    href: "/dashboard",
-    label: "New extraction",
-    icon: Search,
-    exact: true,
-  },
-  {
-    href: "/dashboard/history",
-    label: "History",
-    icon: History,
-  },
-  {
-    href: "/dashboard/billing",
-    label: "Billing and plans",
-    icon: CreditCard,
-    hostedOnly: true,
-  },
-  {
-    href: "/dashboard/settings",
-    label: "Settings",
-    icon: Settings,
-  },
-];
+const ICONS: Record<
+  NavIcon,
+  React.ComponentType<{ className?: string; strokeWidth?: number }>
+> = {
+  search: Search,
+  history: History,
+  billing: CreditCard,
+  settings: Settings,
+};
 
 export function SidebarNav({ onNavigate, stagger = false }: SidebarNavProps): React.ReactElement {
   const pathname = usePathname();
   const isReducedMotion = useReducedMotion();
-  const { isLocal } = useAppAuth();
+  const { isLocal, orgId } = useAppAuth();
 
-  const destinations = DESTINATIONS.filter(
-    (item) => !(item.hostedOnly && isLocal),
-  );
+  const destinations = visibleDestinations(isLocal, orgId);
 
   return (
     <nav className="flex flex-col gap-1 w-full" aria-label="Dashboard navigation">
@@ -63,7 +39,7 @@ export function SidebarNav({ onNavigate, stagger = false }: SidebarNavProps): Re
         const isActive = item.exact
           ? pathname === item.href
           : pathname === item.href || pathname.startsWith(`${item.href}/`);
-        const Icon = item.icon;
+        const Icon = ICONS[item.icon];
 
         const staggerStyle =
           stagger && !isReducedMotion
