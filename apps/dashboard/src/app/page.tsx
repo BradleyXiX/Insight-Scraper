@@ -1,11 +1,23 @@
 import React from "react";
 import Link from "next/link";
-import { ArrowRight, Gauge, MessageSquare, ShieldCheck } from "lucide-react";
+import { ArrowRight, ArrowUpRight, Briefcase, Gauge, GitBranch, Globe, Mail, MessageSquare, ShieldCheck } from "lucide-react";
 import { Logo } from "@/components/Logo";
 import { ExtractionDemo } from "@/components/ExtractionDemo";
+import { NetworkCanvas } from "@/components/NetworkCanvas";
 import { TaglineReveal } from "@/components/TaglineReveal";
 import { FaqList } from "@/components/FaqList";
 import { SiteFooter } from "@/components/SiteFooter";
+import { CONTACT_CHANNELS, OPERATOR_CONTACT, type ContactChannel } from "@/lib/contact";
+
+const CONTACT_ICONS: Record<
+  ContactChannel["id"],
+  React.ComponentType<{ className?: string; strokeWidth?: number }>
+> = {
+  email: Mail,
+  portfolio: Globe,
+  github: GitBranch,
+  linkedin: Briefcase,
+};
 
 const FAQ_ITEMS = [
   {
@@ -50,6 +62,12 @@ export default function Home(): React.ReactElement {
             Pricing
           </Link>
           <Link
+            href="#contact"
+            className="hidden sm:inline text-sm font-medium text-foreground/70 hover:text-white transition-colors"
+          >
+            Contact
+          </Link>
+          <Link
             href="/sign-in"
             className="hidden sm:inline text-sm font-medium text-foreground/70 hover:text-white transition-colors"
           >
@@ -65,51 +83,54 @@ export default function Home(): React.ReactElement {
       </nav>
 
       {/* Hero Section */}
-      <section className="relative z-10 w-full max-w-7xl mx-auto px-6 pt-10 sm:pt-20 pb-16 flex flex-col">
-        <div className="max-w-3xl">
-          <div className="inline-flex items-center gap-2 px-3 py-1 bg-surface border border-border text-accent text-xs font-mono uppercase tracking-wider mb-6">
-            <span>B2B LEAD ENRICHMENT</span>
+      <section className="relative w-full overflow-hidden bg-background">
+        <NetworkCanvas variant="hero" />
+        <div className="relative z-10 w-full max-w-7xl mx-auto px-6 pt-10 sm:pt-20 pb-16 flex flex-col">
+          <div className="max-w-3xl">
+            <div className="inline-flex items-center gap-2 px-3 py-1 bg-surface border border-border text-accent text-xs font-mono uppercase tracking-wider mb-6">
+              <span>B2B LEAD ENRICHMENT</span>
+            </div>
+
+            <h1 className="text-3xl sm:text-5xl md:text-6xl font-semibold tracking-tight text-gradient-hero mb-6 leading-tight">
+              Every lead on the page, with the pitch already written.
+            </h1>
+
+            <p className="text-base sm:text-lg text-foreground/70 leading-relaxed mb-8 max-w-2xl">
+              Pull local businesses from Google Maps, DuckDuckGo and Yellow Pages across six markets. We check their mobile speed and chatbot, then tell you which service to sell them.
+            </p>
+
+            <div className="flex flex-col sm:flex-row sm:items-center gap-4 mb-4">
+              <Link
+                href="/demo"
+                className="inline-flex items-center justify-center gap-2 px-6 py-3.5 bg-white text-black font-semibold text-sm hover:bg-zinc-200 transition-colors"
+              >
+                <span>See a real extraction</span>
+                <ArrowRight className="w-4 h-4" strokeWidth={1.5} />
+              </Link>
+              <Link
+                href="/pricing"
+                className="inline-flex items-center justify-center text-sm font-medium text-foreground/70 hover:text-white underline underline-offset-4 transition-colors"
+              >
+                See pricing
+              </Link>
+            </div>
+
+            <p className="text-xs font-mono text-foreground/50">
+              Read-only sample. No account needed.
+            </p>
           </div>
 
-          <h1 className="text-3xl sm:text-5xl md:text-6xl font-semibold tracking-tight text-gradient-hero mb-6 leading-tight">
-            Every lead on the page, with the pitch already written.
-          </h1>
-
-          <p className="text-base sm:text-lg text-foreground/70 leading-relaxed mb-8 max-w-2xl">
-            Pull local businesses from Google Maps, DuckDuckGo and Yellow Pages across six markets. We check their mobile speed and chatbot, then tell you which service to sell them.
-          </p>
-
-          <div className="flex flex-col sm:flex-row sm:items-center gap-4 mb-4">
-            <Link
-              href="/demo"
-              className="inline-flex items-center justify-center gap-2 px-6 py-3.5 bg-white text-black font-semibold text-sm hover:bg-zinc-200 transition-colors"
-            >
-              <span>See a real extraction</span>
-              <ArrowRight className="w-4 h-4" strokeWidth={1.5} />
-            </Link>
-            <Link
-              href="/pricing"
-              className="inline-flex items-center justify-center text-sm font-medium text-foreground/70 hover:text-white underline underline-offset-4 transition-colors"
-            >
-              See pricing
-            </Link>
+          {/* Proof slot */}
+          <div className="py-6 my-8 border-y border-border text-center">
+            <span className="text-xs font-mono text-foreground/30 uppercase tracking-widest">
+              {"{{testimonial}}"}
+            </span>
           </div>
 
-          <p className="text-xs font-mono text-foreground/50">
-            Read-only sample. No account needed.
-          </p>
-        </div>
-
-        {/* Proof slot */}
-        <div className="py-6 my-8 border-y border-border text-center">
-          <span className="text-xs font-mono text-foreground/30 uppercase tracking-widest">
-            {"{{testimonial}}"}
-          </span>
-        </div>
-
-        {/* Hero Visual: Extraction Demo over dot-grid */}
-        <div className="w-full dot-grid p-3 sm:p-6 lg:p-8 border border-border bg-surface/30">
-          <ExtractionDemo variant="hero" />
+          {/* Hero Visual: Extraction Demo over dot-grid */}
+          <div className="w-full dot-grid p-3 sm:p-6 lg:p-8 border border-border bg-surface/30">
+            <ExtractionDemo variant="hero" />
+          </div>
         </div>
       </section>
 
@@ -176,8 +197,9 @@ export default function Home(): React.ReactElement {
       </section>
 
       {/* Benefits (Two-column zig zag, not three equal cards) */}
-      <section className="w-full border-t border-border bg-background py-20 px-6">
-        <div className="max-w-7xl mx-auto space-y-16">
+      <section className="relative w-full overflow-hidden border-t border-border bg-background py-20 px-6">
+        <NetworkCanvas variant="section" />
+        <div className="relative z-10 max-w-7xl mx-auto space-y-16">
           <div className="max-w-2xl">
             <div className="text-xs font-mono uppercase tracking-wider text-accent mb-2">
               OUTCOMES
@@ -381,6 +403,58 @@ export default function Home(): React.ReactElement {
           <p className="text-xs font-mono text-foreground/50">
             Read-only sample. No account needed.
           </p>
+        </div>
+      </section>
+
+      {/* Contact */}
+      <section id="contact" className="w-full border-t border-border bg-background py-20 px-6">
+        <div className="max-w-7xl mx-auto">
+          <div className="max-w-2xl mb-12">
+            <div className="text-xs font-mono uppercase tracking-wider text-accent mb-2">
+              CONTACT
+            </div>
+            <h2 className="text-2xl sm:text-4xl font-semibold text-white tracking-tight mb-4">
+              Built by {OPERATOR_CONTACT.name}
+            </h2>
+            <p className="text-sm sm:text-base text-foreground/70 leading-relaxed">
+              Need a custom extraction run, technical walkthrough, or want to collaborate? Reach out directly on any channel below.
+            </p>
+          </div>
+
+          <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            {CONTACT_CHANNELS.map((channel) => {
+              const Icon = CONTACT_ICONS[channel.id];
+              return (
+                <a
+                  key={channel.id}
+                  href={channel.href}
+                  target={channel.external ? "_blank" : undefined}
+                  rel={channel.external ? "noopener noreferrer" : undefined}
+                  className="panel bg-surface border border-border hover:border-accent/60 hover:bg-surface-hover transition-colors p-5 flex flex-col justify-between gap-4 group"
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="w-8 h-8 flex items-center justify-center bg-background border border-border text-accent">
+                      <Icon className="w-4 h-4" strokeWidth={1.5} />
+                    </div>
+                    {channel.external && (
+                      <ArrowUpRight
+                        className="w-4 h-4 text-foreground/40 group-hover:text-accent transition-colors"
+                        strokeWidth={1.5}
+                      />
+                    )}
+                  </div>
+                  <div>
+                    <div className="text-xs font-mono uppercase tracking-wider text-foreground/50 mb-1">
+                      {channel.label}
+                    </div>
+                    <div className="text-sm font-medium text-white break-all">
+                      {channel.value}
+                    </div>
+                  </div>
+                </a>
+              );
+            })}
+          </div>
         </div>
       </section>
 

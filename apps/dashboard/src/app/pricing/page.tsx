@@ -3,6 +3,7 @@ import Link from "next/link";
 import { Logo } from "@/components/Logo";
 import { PriceTier } from "@/components/PriceTier";
 import { SiteFooter } from "@/components/SiteFooter";
+import { OPERATOR_CONTACT } from "@/lib/contact";
 
 const PRO_FEATURES = [
   "Up to 50 leads per search",
@@ -98,7 +99,14 @@ export default function PricingPage(): React.ReactElement {
         {/* Reassurance notes */}
         <div className="max-w-2xl mx-auto text-center border-t border-border pt-12">
           <p className="text-xs font-mono text-foreground/50">
-            Volume or custom formatting? Email sales@insightscraper.com.
+            Volume or custom formatting? Email{" "}
+            <a
+              href={OPERATOR_CONTACT.mailto}
+              className="text-accent hover:underline"
+            >
+              {OPERATOR_CONTACT.email}
+            </a>
+            .
           </p>
         </div>
       </main>

@@ -5,6 +5,7 @@ import { Logo } from "@/components/Logo";
 import { KpiStrip } from "@/components/KpiStrip";
 import { LeadResults } from "@/components/LeadResults";
 import { DemoExport } from "@/components/DemoExport";
+import { CONTACT_CHANNELS, OPERATOR_CONTACT } from "@/lib/contact";
 import { DEMO_PROVENANCE, DEMO_RUN } from "@/lib/demo-run";
 
 export const metadata: Metadata = {
@@ -158,20 +159,35 @@ export default function DemoPage(): React.ReactElement {
           />
         </div>
 
-        <div className="border-t border-border pt-6 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <p className="text-sm text-foreground/70">
-            Want a run like this for your market?{" "}
-            <a
-              href="mailto:sales@insightscraper.com"
-              className="text-accent hover:underline"
-            >
-              Get in touch
-            </a>
-            .
-          </p>
+        <div className="border-t border-border pt-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="space-y-2">
+            <p className="text-sm text-foreground/70">
+              Want a run like this for your market? Email{" "}
+              <a
+                href={OPERATOR_CONTACT.mailto}
+                className="text-accent hover:underline font-mono"
+              >
+                {OPERATOR_CONTACT.email}
+              </a>
+              .
+            </p>
+            <div className="flex flex-wrap items-center gap-4 text-xs font-mono">
+              {CONTACT_CHANNELS.filter((channel) => channel.external).map((channel) => (
+                <a
+                  key={channel.id}
+                  href={channel.href}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-foreground/60 hover:text-white transition-colors"
+                >
+                  {channel.label}
+                </a>
+              ))}
+            </div>
+          </div>
           <Link
             href="/"
-            className="text-xs font-mono uppercase tracking-wider text-foreground/60 hover:text-white transition-colors"
+            className="text-xs font-mono uppercase tracking-wider text-foreground/60 hover:text-white transition-colors shrink-0"
           >
             Back to the overview
           </Link>
