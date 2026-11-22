@@ -25,8 +25,10 @@ export default function PricingPage(): React.ReactElement {
     <div className="min-h-screen bg-background text-foreground font-sans relative flex flex-col selection:bg-accent-quiet">
       {/* Navigation */}
       <nav className="relative z-10 flex items-center justify-between px-6 py-4 w-full max-w-7xl mx-auto border-b border-border bg-surface/80 backdrop-blur-md">
-        <Logo size={24} />
-        <div className="flex items-center gap-6">
+        <div className="shrink-0">
+          <Logo size={24} />
+        </div>
+        <div className="flex items-center gap-4 sm:gap-6">
           <Link
             href="/pricing"
             className="text-sm font-medium text-white transition-colors"
@@ -35,7 +37,7 @@ export default function PricingPage(): React.ReactElement {
           </Link>
           <Link
             href="/sign-in"
-            className="text-sm font-medium text-foreground/70 hover:text-white transition-colors"
+            className="hidden sm:inline text-sm font-medium text-foreground/70 hover:text-white transition-colors"
           >
             Sign in
           </Link>
@@ -61,7 +63,7 @@ export default function PricingPage(): React.ReactElement {
           </h1>
 
           <p className="text-base sm:text-lg text-foreground/70 leading-relaxed max-w-2xl mx-auto">
-            Choose the plan that fits your prospecting scale. Every subscription includes full signal inspection and direct export tools.
+            Compare the planned tiers below. Both include full signal inspection and direct export tools.
           </p>
 
           <p className="mt-4 text-sm font-mono text-attention">
