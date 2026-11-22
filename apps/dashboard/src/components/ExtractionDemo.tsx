@@ -212,6 +212,10 @@ export function ExtractionDemo({ variant = "hero" }: ExtractionDemoProps): React
 
         {/* Chips and status */}
         <div className="flex flex-wrap items-center gap-2">
+          {/* This animation runs on invented data, not a captured run. */}
+          <div className="px-2.5 py-1 text-xs font-mono uppercase bg-background text-foreground/40 border border-border">
+            Illustrative
+          </div>
           {/* Region chip */}
           <div
             className={`px-2.5 py-1 text-xs font-mono uppercase border transition-colors ${

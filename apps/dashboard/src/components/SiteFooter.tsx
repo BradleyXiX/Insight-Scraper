@@ -15,6 +15,12 @@ export function SiteFooter(): React.ReactElement {
 
         <div className="flex items-center gap-6 text-sm">
           <Link
+            href="/demo"
+            className="text-foreground/70 hover:text-white transition-colors"
+          >
+            Sample output
+          </Link>
+          <Link
             href="/pricing"
             className="text-foreground/70 hover:text-white transition-colors"
           >
@@ -25,12 +31,6 @@ export function SiteFooter(): React.ReactElement {
             className="text-foreground/70 hover:text-white transition-colors"
           >
             Sign in
-          </Link>
-          <Link
-            href="/sign-up"
-            className="text-foreground/70 hover:text-white transition-colors"
-          >
-            Sign up
           </Link>
         </div>
 

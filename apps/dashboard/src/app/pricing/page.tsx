@@ -40,10 +40,10 @@ export default function PricingPage(): React.ReactElement {
             Sign in
           </Link>
           <Link
-            href="/sign-up"
+            href="/demo"
             className="text-sm font-semibold bg-white text-black px-4 py-2 hover:bg-zinc-200 transition-colors"
           >
-            Get started
+            See sample
           </Link>
         </div>
       </nav>
@@ -63,6 +63,10 @@ export default function PricingPage(): React.ReactElement {
           <p className="text-base sm:text-lg text-foreground/70 leading-relaxed max-w-2xl mx-auto">
             Choose the plan that fits your prospecting scale. Every subscription includes full signal inspection and direct export tools.
           </p>
+
+          <p className="mt-4 text-sm font-mono text-attention">
+            Pricing is planned. Subscriptions are not open yet; the sample output shows what a run produces.
+          </p>
         </div>
 
         {/* Pricing Cards Grid (Two tiers only) */}
@@ -74,6 +78,8 @@ export default function PricingPage(): React.ReactElement {
             description="For solo operators running targeted prospect lists"
             features={PRO_FEATURES}
             featured={true}
+            ctaHref="/demo"
+            ctaText="See sample output"
           />
 
           <PriceTier
@@ -82,13 +88,15 @@ export default function PricingPage(): React.ReactElement {
             description="For agencies that need custom volume and formatting"
             features={ENTERPRISE_FEATURES}
             featured={false}
+            ctaHref="/demo"
+            ctaText="See sample output"
           />
         </div>
 
         {/* Reassurance notes */}
         <div className="max-w-2xl mx-auto text-center border-t border-border pt-12">
           <p className="text-xs font-mono text-foreground/50">
-            Free to sign up. Contact support to change or cancel a subscription.
+            Volume or custom formatting? Email sales@insightscraper.com.
           </p>
         </div>
       </main>
