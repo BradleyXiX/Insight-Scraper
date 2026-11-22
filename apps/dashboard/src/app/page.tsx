@@ -29,8 +29,8 @@ const FAQ_ITEMS = [
     a: "Yes. Every search produces clean structured data that you can download as a comma separated values spreadsheet for your CRM or outreach system.",
   },
   {
-    q: "What does the Pro subscription cost?",
-    a: "The Pro tier costs $49 per month and includes up to 50 leads per search, full signal extraction and CSV export. Contact support to change or cancel your plan.",
+    q: "What will the Pro subscription cost?",
+    a: "Pro is planned at $49 per month with up to 50 leads per search, full signal extraction, and CSV export. Subscriptions are not open yet; the sample output shows exactly what a run produces.",
   },
 ];
 
@@ -39,8 +39,10 @@ export default function Home(): React.ReactElement {
     <div className="min-h-screen bg-background text-foreground font-sans relative flex flex-col selection:bg-accent-quiet">
       {/* Navigation */}
       <nav className="relative z-10 flex items-center justify-between px-6 py-4 w-full max-w-7xl mx-auto border-b border-border bg-surface/80 backdrop-blur-md">
-        <Logo size={24} />
-        <div className="flex items-center gap-6">
+        <div className="shrink-0">
+          <Logo size={24} />
+        </div>
+        <div className="flex items-center gap-4 sm:gap-6">
           <Link
             href="/pricing"
             className="text-sm font-medium text-foreground/70 hover:text-white transition-colors"
@@ -49,15 +51,15 @@ export default function Home(): React.ReactElement {
           </Link>
           <Link
             href="/sign-in"
-            className="text-sm font-medium text-foreground/70 hover:text-white transition-colors"
+            className="hidden sm:inline text-sm font-medium text-foreground/70 hover:text-white transition-colors"
           >
             Sign in
           </Link>
           <Link
-            href="/sign-up"
+            href="/demo"
             className="text-sm font-semibold bg-white text-black px-4 py-2 hover:bg-zinc-200 transition-colors"
           >
-            Get started
+            See sample
           </Link>
         </div>
       </nav>
@@ -79,10 +81,10 @@ export default function Home(): React.ReactElement {
 
           <div className="flex flex-col sm:flex-row sm:items-center gap-4 mb-4">
             <Link
-              href="/sign-up"
+              href="/demo"
               className="inline-flex items-center justify-center gap-2 px-6 py-3.5 bg-white text-black font-semibold text-sm hover:bg-zinc-200 transition-colors"
             >
-              <span>Run a sample extraction</span>
+              <span>See a real extraction</span>
               <ArrowRight className="w-4 h-4" strokeWidth={1.5} />
             </Link>
             <Link
@@ -94,7 +96,7 @@ export default function Home(): React.ReactElement {
           </div>
 
           <p className="text-xs font-mono text-foreground/50">
-            Free to sign up. Cancel anytime.
+            Read-only sample. No account needed.
           </p>
         </div>
 
@@ -349,7 +351,7 @@ export default function Home(): React.ReactElement {
       <section className="w-full border-t border-border bg-surface py-20 px-6 text-center">
         <div className="max-w-3xl mx-auto">
           <div className="inline-flex items-center gap-2 px-3 py-1 bg-background border border-border text-accent text-xs font-mono uppercase tracking-wider mb-6">
-            <span>GET STARTED</span>
+            <span>SAMPLE OUTPUT</span>
           </div>
 
           <h2 className="text-3xl sm:text-5xl font-semibold tracking-tight text-white mb-6 leading-tight">
@@ -362,10 +364,10 @@ export default function Home(): React.ReactElement {
 
           <div className="flex flex-col sm:flex-row items-center justify-center gap-4 mb-4">
             <Link
-              href="/sign-up"
+              href="/demo"
               className="inline-flex items-center justify-center gap-2 px-6 py-3.5 bg-white text-black font-semibold text-sm hover:bg-zinc-200 transition-colors w-full sm:w-auto"
             >
-              <span>Run a sample extraction</span>
+              <span>See a real extraction</span>
               <ArrowRight className="w-4 h-4" strokeWidth={1.5} />
             </Link>
             <Link
@@ -377,7 +379,7 @@ export default function Home(): React.ReactElement {
           </div>
 
           <p className="text-xs font-mono text-foreground/50">
-            Free to sign up. Cancel anytime.
+            Read-only sample. No account needed.
           </p>
         </div>
       </section>

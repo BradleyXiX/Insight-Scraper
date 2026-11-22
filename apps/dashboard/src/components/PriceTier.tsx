@@ -40,7 +40,7 @@ export function PriceTier({
         </div>
         {featured && (
           <div className="px-2.5 py-1 text-xs font-mono uppercase tracking-wider bg-accent-quiet text-accent border border-accent/40 shrink-0">
-            Most popular
+            Recommended
           </div>
         )}
       </div>
