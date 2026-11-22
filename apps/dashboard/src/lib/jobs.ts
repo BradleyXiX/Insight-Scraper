@@ -1,4 +1,5 @@
 import { getApiUrl } from "./api";
+import { fetchWithTimeout } from "./http";
 
 export type JobStatus =
   | "queued"
@@ -139,7 +140,7 @@ export async function apiRequest(
     headers.set("Content-Type", "application/json");
   }
 
-  return fetch(`${getApiUrl()}${path}`, { ...init, headers });
+  return fetchWithTimeout(`${getApiUrl()}${path}`, { ...init, headers });
 }
 
 export function startScrape(

@@ -23,7 +23,7 @@ export function describeFailure(status: number, detail?: string): string {
         "The extraction worker failed. Retry, then try a different source or a smaller limit.";
     case 503:
       return detail?.trim() ||
-        "The service is not ready. Check that the API and database are running.";
+        "The service is waking up. Free hosting sleeps when idle, so the first request can take up to a minute. Retry once.";
     case 504:
       return "The extraction timed out. Try a narrower query or a smaller lead limit.";
     default:
@@ -52,4 +52,4 @@ export async function readFailure(response: Response): Promise<string> {
 }
 
 export const NETWORK_FAILURE =
-  "Could not reach the extraction service. Check that the API is running, then retry.";
+  "The extraction service did not respond. On free hosting it sleeps when idle, so the first request can take up to a minute. Retry once.";
