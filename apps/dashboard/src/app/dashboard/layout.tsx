@@ -1,11 +1,13 @@
 "use client";
 
 import React, { useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { UserButton, OrganizationSwitcher } from "@clerk/nextjs";
-import { Menu, X, Sparkles, Terminal } from "lucide-react";
+import { Menu, X, Sparkles, Terminal, ArrowRight } from "lucide-react";
 import { Logo } from "@/components/Logo";
 import { SidebarNav } from "@/components/SidebarNav";
 import { useAppAuth } from "@/lib/app-auth";
+import { requiresWorkspace } from "@/lib/workspace";
 
 export default function DashboardLayout({
   children,
@@ -14,7 +16,7 @@ export default function DashboardLayout({
 }): React.ReactElement {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const menuButtonRef = useRef<HTMLButtonElement>(null);
-  const { isLocal, operatorLabel } = useAppAuth();
+  const { isLocal, orgId, operatorLabel } = useAppAuth();
 
   // Close drawer on Escape key and restore focus to menu button
   useEffect(() => {
@@ -28,6 +30,59 @@ export default function DashboardLayout({
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [drawerOpen]);
+
+  // A hosted session with no organization is not attached to a tenant. The API
+  // rejects every request that carries no organization, so rendering the shell
+  // would loop on 403s. Return before the children mount instead.
+  if (requiresWorkspace(isLocal, orgId)) {
+    return (
+      <div className="min-h-screen bg-background text-foreground font-sans flex items-center justify-center px-6 selection:bg-accent-quiet">
+        <div className="w-full max-w-lg text-center">
+          <div className="flex justify-center mb-8">
+            <Logo size={32} />
+          </div>
+
+          <div className="panel bg-surface border border-border p-8">
+            <div className="inline-flex items-center gap-2 px-3 py-1 bg-background border border-border text-accent text-xs font-mono uppercase tracking-wider mb-6">
+              <span>ACCESS</span>
+            </div>
+
+            <h1 className="text-2xl font-semibold text-white mb-4">
+              Access is by invitation
+            </h1>
+
+            <p className="text-sm text-foreground/70 leading-relaxed mb-8">
+              Your account is not attached to a workspace, so there is nothing to
+              show yet. Ask the operator for an invitation, or sign out and use the
+              sample output.
+            </p>
+
+            <div className="flex flex-col sm:flex-row items-center justify-center gap-5">
+              <Link
+                href="/demo"
+                className="inline-flex items-center justify-center gap-2 px-5 py-3 bg-white text-black font-semibold text-sm hover:bg-zinc-200 transition-colors"
+              >
+                <span>See sample output</span>
+                <ArrowRight className="w-4 h-4" strokeWidth={1.5} />
+              </Link>
+              <UserButton
+                appearance={{
+                  elements: {
+                    userButtonAvatarBox:
+                      "w-8 h-8 border border-border hover:border-accent transition-colors rounded-none",
+                  },
+                }}
+              />
+            </div>
+          </div>
+
+          <p className="mt-6 text-xs font-mono text-foreground/50">
+            Workspace access is provisioned by the operator.
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex h-screen bg-background text-foreground font-sans overflow-hidden">
