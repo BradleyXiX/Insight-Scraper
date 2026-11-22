@@ -50,37 +50,39 @@ export default function Home(): React.ReactElement {
   return (
     <div className="min-h-screen bg-background text-foreground font-sans relative flex flex-col selection:bg-accent-quiet">
       {/* Navigation */}
-      <nav className="relative z-10 flex items-center justify-between px-6 py-4 w-full max-w-7xl mx-auto border-b border-border bg-surface/80 backdrop-blur-md">
-        <div className="shrink-0">
-          <Logo size={24} />
-        </div>
-        <div className="flex items-center gap-4 sm:gap-6">
-          <Link
-            href="/pricing"
-            className="text-sm font-medium text-foreground/70 hover:text-white transition-colors"
-          >
-            Pricing
-          </Link>
-          <Link
-            href="#contact"
-            className="hidden sm:inline text-sm font-medium text-foreground/70 hover:text-white transition-colors"
-          >
-            Contact
-          </Link>
-          <Link
-            href="/sign-in"
-            className="hidden sm:inline text-sm font-medium text-foreground/70 hover:text-white transition-colors"
-          >
-            Sign in
-          </Link>
-          <Link
-            href="/demo"
-            className="text-sm font-semibold bg-white text-black px-4 py-2 hover:bg-zinc-200 transition-colors"
-          >
-            See sample
-          </Link>
-        </div>
-      </nav>
+      <header className="relative z-10 w-full border-b border-border bg-surface/80 backdrop-blur-md">
+        <nav className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
+          <div className="shrink-0">
+            <Logo size={24} />
+          </div>
+          <div className="flex items-center gap-4 sm:gap-6">
+            <Link
+              href="/pricing"
+              className="text-sm font-medium text-foreground/70 hover:text-white transition-colors"
+            >
+              Pricing
+            </Link>
+            <Link
+              href="#contact"
+              className="hidden sm:inline text-sm font-medium text-foreground/70 hover:text-white transition-colors"
+            >
+              Contact
+            </Link>
+            <Link
+              href="/sign-in"
+              className="hidden sm:inline text-sm font-medium text-foreground/70 hover:text-white transition-colors"
+            >
+              Sign in
+            </Link>
+            <Link
+              href="/demo"
+              className="text-sm font-semibold bg-white text-black px-4 py-2 hover:bg-zinc-200 transition-colors"
+            >
+              See sample
+            </Link>
+          </div>
+        </nav>
+      </header>
 
       {/* Hero Section */}
       <section className="relative w-full overflow-hidden bg-background">
